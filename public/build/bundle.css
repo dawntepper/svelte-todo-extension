@@ -1,0 +1,129 @@
+
+  :root {
+    --primary-color: #3498db;
+    --secondary-color: #2ecc71;
+    --background-color: #f5f5f5;
+    --text-color: #333;
+    --border-color: #ddd;
+  }
+
+  main.svelte-dc9qcv {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 20px;
+    background-color: var(--background-color);
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  }
+
+  h1.svelte-dc9qcv {
+    text-align: center;
+    color: var(--primary-color);
+    margin-bottom: 20px;
+  }
+
+  .input-group.svelte-dc9qcv {
+    display: flex;
+    margin-bottom: 20px;
+  }
+
+  input[type="text"].svelte-dc9qcv,
+  select.svelte-dc9qcv,
+  textarea.svelte-dc9qcv {
+    flex-grow: 1;
+    padding: 10px;
+    margin-right: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+  }
+
+  textarea.svelte-dc9qcv {
+    height: 100px;
+    resize: vertical;
+  }
+
+  button.svelte-dc9qcv {
+    padding: 10px 15px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+
+  button.svelte-dc9qcv:hover {
+    background-color: #2980b9;
+  }
+
+  .task-list.svelte-dc9qcv {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 20px;
+    background-color: white;
+  }
+
+  .task.svelte-dc9qcv {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: background-color 0.3s ease;
+  }
+
+  .task.svelte-dc9qcv:hover {
+    background-color: #f9f9f9;
+  }
+
+  .completed.svelte-dc9qcv {
+    text-decoration: line-through;
+    color: #888;
+  }
+
+  .label.svelte-dc9qcv {
+    background-color: var(--secondary-color);
+    color: white;
+    padding: 2px 5px;
+    border-radius: 3px;
+    margin-left: 5px;
+    font-size: 0.8em;
+  }
+
+  .delete-btn.svelte-dc9qcv {
+    background-color: transparent;
+    color: #e74c3c;
+    font-size: 18px;
+    padding: 0 5px;
+    margin-left: auto;
+  }
+
+  .delete-btn.svelte-dc9qcv:hover {
+    background-color: #e74c3c;
+    color: white;
+  }
+
+  .task-list.svelte-dc9qcv::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .task-list.svelte-dc9qcv::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  .task-list.svelte-dc9qcv::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+
+  .task-list.svelte-dc9qcv::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+
