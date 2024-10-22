@@ -1,6 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
+  if (chrome && chrome.storage) {
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      for (let [key, { oldValue, newValue }] of Object.entries(changes)) {
+        console.log(
+          `Storage key "${key}" in namespace "${namespace}" changed.`,
+          `Old value was "${oldValue}", new value is "${newValue}".`
+        );
+      }
+    });
+  }
+
   interface Todo {
     id: string;
     text: string;
@@ -20,15 +31,52 @@
   let bulkInput = "";
   let editingListId: string | null = null;
 
+  function isCurrentListValid(list: TodoList | null): list is TodoList {
+    return list !== null;
+  }
+
   onMount(() => {
-    const savedLists = localStorage.getItem("todoLists");
-    if (savedLists) {
-      lists = JSON.parse(savedLists);
-    }
+    console.log("onMount called");
+    // Get data when component mounts
+    chrome.storage.sync.get(["todoLists", "currentListId"], (result) => {
+      console.log("chrome.storage.sync.get called", result);
+      if ("todoLists" in result) {
+        lists = JSON.parse(result.todoLists);
+        console.log("Lists loaded:", lists);
+        if ("currentListId" in result) {
+          currentList =
+            lists.find((list) => list.id === result.currentListId) || null;
+          console.log("Current list set:", currentList);
+        }
+      } else {
+        // Initialize with empty data if not found
+        chrome.storage.sync.set({
+          todoLists: JSON.stringify([]),
+          currentListId: null,
+        });
+      }
+    });
   });
 
   $: {
-    localStorage.setItem("todoLists", JSON.stringify(lists));
+    if (chrome && chrome.storage) {
+      saveData();
+    }
+  }
+
+  async function saveData() {
+    try {
+      await chrome.storage.sync.set({
+        todoLists: JSON.stringify(lists),
+        currentListId: currentList?.id || null,
+      });
+      console.log("Data saved successfully", {
+        lists,
+        currentListId: currentList?.id,
+      });
+    } catch (error) {
+      console.error("Error saving data:", error);
+    }
   }
 
   function handleNewListKeyPress(e: KeyboardEvent) {
@@ -46,7 +94,7 @@
     handleEnterKey(e, addTodo);
   }
 
-  function createNewList() {
+  async function createNewList() {
     if (newListLabel.trim()) {
       const newList: TodoList = {
         id: Date.now().toString(),
@@ -56,32 +104,56 @@
       lists = [newList, ...lists];
       currentList = newList;
       newListLabel = "";
+
+      try {
+        await chrome.storage.sync.set({
+          todoLists: JSON.stringify(lists),
+          currentListId: newList.id,
+        });
+        console.log("New list saved successfully");
+      } catch (error) {
+        console.error("Error saving new list:", error);
+      }
     }
   }
 
   function selectList(list: TodoList) {
     currentList = list;
+    saveData();
   }
 
   function editList(list: TodoList) {
     startEditingList(list.id);
   }
 
-  function addTodo() {
-    if (newTodoText.trim() && currentList) {
+  async function addTodo() {
+    if (newTodoText.trim() && isCurrentListValid(currentList)) {
       const newTodo: Todo = {
         id: Date.now().toString(),
         text: newTodoText.trim(),
         completed: false,
       };
       currentList.todos = [...currentList.todos, newTodo];
-      lists = [...lists];
+      lists = lists.map((list) =>
+        list.id === currentList?.id // Use optional chaining to prevent null access
+          ? { ...list, todos: currentList.todos }
+          : list
+      );
       newTodoText = "";
+
+      try {
+        await chrome.storage.sync.set({
+          todoLists: JSON.stringify(lists),
+        });
+        console.log("New todo saved successfully");
+      } catch (error) {
+        console.error("Error saving new todo:", error);
+      }
     }
   }
 
   function createTasksFromInput() {
-    if (currentList && bulkInput.trim()) {
+    if (isCurrentListValid(currentList) && bulkInput.trim()) {
       const newTasks = bulkInput
         .split(/\n|•|-/)
         .map((task) => task.trim())
@@ -92,8 +164,13 @@
           completed: false,
         }));
       currentList.todos = [...currentList.todos, ...newTasks];
-      lists = [...lists];
+      lists = lists.map((list) =>
+        list.id === currentList?.id // Use optional chaining to prevent null access
+          ? { ...list, todos: currentList.todos }
+          : list
+      );
       bulkInput = "";
+      saveData();
     }
   }
 
@@ -109,16 +186,18 @@
       }
       return list;
     });
-    if (currentList && currentList.id === listId) {
+    if (isCurrentListValid(currentList) && currentList.id === listId) {
       currentList = lists.find((list) => list.id === listId) || null;
     }
+    saveData();
   }
 
   function deleteList(listId: string) {
     lists = lists.filter((list) => list.id !== listId);
-    if (currentList && currentList.id === listId) {
+    if (isCurrentListValid(currentList) && currentList.id === listId) {
       currentList = null;
     }
+    saveData();
   }
 
   function startEditingList(listId: string) {
@@ -133,11 +212,12 @@
           ? { ...list, label: newListLabel.trim() }
           : list
       );
-      if (currentList && currentList.id === editingListId) {
+      if (isCurrentListValid(currentList) && currentList.id === editingListId) {
         currentList = { ...currentList, label: newListLabel.trim() };
       }
       editingListId = null;
       newListLabel = "";
+      saveData();
     }
   }
 
@@ -170,7 +250,10 @@
 
   function handleTodoKeyPress(todo: Todo) {
     return (e: KeyboardEvent) => {
-      if (currentList && (e.key === "Enter" || e.key === " ")) {
+      if (
+        isCurrentListValid(currentList) &&
+        (e.key === "Enter" || e.key === " ")
+      ) {
         e.preventDefault();
         toggleTodo(currentList.id, todo.id);
       }
@@ -277,7 +360,7 @@
         </div>
       {/each}
 
-      {#if currentList}
+      {#if isCurrentListValid(currentList)}
         <div
           class="bg-white border rounded-lg p-4 mt-4 shadow-md flex flex-col"
         >
