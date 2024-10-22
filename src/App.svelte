@@ -1,308 +1,225 @@
 <script lang="ts">
-  /// <reference types="chrome" />
-  import { onMount, onDestroy } from "svelte";
-  import { fade } from "svelte/transition";
+  import { onMount } from "svelte";
 
-  type Todo = {
-    id: number;
-    text: string;
-    completed: boolean;
-    label?: string;
-  };
+  interface TodoList {
+    label: string;
+    tasks: { text: string; completed: boolean }[];
+  }
 
-  let todos: Todo[] = [];
-  let newTodo = "";
-  let bulkInput = "";
-  let currentLabel = "";
-  let labels: string[] = [];
-  let mounted = false;
-  let unsubscribe: () => void;
+  let inputText = "";
+  let tasks: { text: string; completed: boolean }[] = [];
+  let listLabel = "";
+  let savedLists: TodoList[] = [];
 
   onMount(() => {
-    mounted = true;
-    loadTodos();
-    loadLabels();
-
-    unsubscribe = addStorageListener();
-  });
-
-  onDestroy(() => {
-    mounted = false;
-    if (unsubscribe) {
-      unsubscribe();
+    const saved = localStorage.getItem("savedTodoLists");
+    if (saved) {
+      savedLists = JSON.parse(saved);
     }
   });
 
-  function addStorageListener(): () => void {
-    const listener = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      areaName: string
-    ) => {
-      if (areaName === "sync") {
-        if (changes.todos && mounted) {
-          todos = changes.todos.newValue;
-        }
-        if (changes.labels && mounted) {
-          labels = changes.labels.newValue;
-        }
-      }
-    };
-
-    chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
-  }
-
-  function addTodo(): void {
-    if (newTodo.trim()) {
-      const updatedTodos = [
-        ...todos,
-        {
-          id: Date.now(),
-          text: newTodo.trim(),
-          completed: false,
-          label: currentLabel,
-        },
-      ];
-      saveTodos(updatedTodos);
-      newTodo = "";
-    }
-  }
-
-  function toggleTodo(id: number): void {
-    const updatedTodos = todos.map((todo) =>
-      todo.id === id ? { ...todo, completed: !todo.completed } : todo
-    );
-    saveTodos(updatedTodos);
-  }
-
-  function deleteTodo(id: number): void {
-    const updatedTodos = todos.filter((todo) => todo.id !== id);
-    saveTodos(updatedTodos);
-  }
-
-  function createTasksFromInput(): void {
-    const newTasks = bulkInput
+  function createTasks() {
+    tasks = inputText
       .split(/\n|•|-/)
       .map((task) => task.trim())
       .filter((task) => task !== "")
-      .map((task) => ({
-        id: Date.now() + Math.random(),
-        text: task,
-        completed: false,
-        label: currentLabel,
-      }));
-    const updatedTodos = [...todos, ...newTasks];
-    saveTodos(updatedTodos);
-    bulkInput = "";
+      .map((task) => ({ text: task, completed: false }));
+    inputText = "";
   }
 
-  function addLabel(): void {
-    if (currentLabel && !labels.includes(currentLabel)) {
-      const updatedLabels = [...labels, currentLabel];
-      saveLabels(updatedLabels);
+  function toggleTask(index: number) {
+    tasks[index].completed = !tasks[index].completed;
+    tasks = [...tasks];
+  }
+
+  function clearTasks() {
+    tasks = [];
+  }
+
+  function saveList() {
+    if (listLabel && tasks.length > 0) {
+      const newList = { label: listLabel, tasks };
+      savedLists = [...savedLists, newList];
+      localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
+      listLabel = "";
     }
   }
 
-  function saveTodos(updatedTodos: Todo[]): void {
-    chrome.storage.sync.set({ todos: updatedTodos });
+  function loadList(list: TodoList) {
+    tasks = [...list.tasks];
   }
 
-  function loadTodos(): void {
-    chrome.storage.sync.get(["todos"], (result) => {
-      if (mounted && result.todos) {
-        todos = result.todos;
-      }
-    });
-  }
-
-  function saveLabels(updatedLabels: string[]): void {
-    chrome.storage.sync.set({ labels: updatedLabels });
-  }
-
-  function loadLabels(): void {
-    chrome.storage.sync.get(["labels"], (result) => {
-      if (mounted && result.labels) {
-        labels = result.labels;
-      }
-    });
+  function deleteSavedList(index: number) {
+    savedLists = savedLists.filter((_, i) => i !== index);
+    localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
   }
 </script>
 
-<main>
-  <h1>Todo List Sidebar</h1>
-
-  <div class="input-group">
-    <input type="text" bind:value={newTodo} placeholder="Add a new todo" />
-    <select bind:value={currentLabel}>
-      <option value="">No Label</option>
-      {#each labels as label}
-        <option value={label}>{label}</option>
+<main class="max-w-md mx-auto p-4 space-y-4">
+  <h1 class="text-2xl font-bold text-center">Enhanced Todo List Creator</h1>
+  <textarea
+    placeholder="Paste your list here (one item per line, or use • or - for bullets)"
+    bind:value={inputText}
+    class="min-h-[150px] w-full p-2 border rounded"
+  ></textarea>
+  <button
+    on:click={createTasks}
+    class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition-colors"
+  >
+    Create Todo List
+  </button>
+  {#if tasks.length > 0}
+    <div class="space-y-2">
+      <h2 class="text-xl font-semibold">Your Todo List:</h2>
+      {#each tasks as task, index}
+        <div class="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id="task-{index}"
+            bind:checked={task.completed}
+            on:change={() => toggleTask(index)}
+            class="form-checkbox h-5 w-5 text-blue-600"
+          />
+          <label
+            for="task-{index}"
+            class="flex-grow {task.completed
+              ? 'line-through text-gray-500'
+              : ''}"
+          >
+            {task.text}
+          </label>
+        </div>
       {/each}
-    </select>
-    <button on:click={addTodo}>Add</button>
-  </div>
-
-  <div class="input-group">
-    <input type="text" bind:value={currentLabel} placeholder="New label" />
-    <button on:click={addLabel}>Add Label</button>
-  </div>
-
-  <div class="task-list">
-    {#each todos as todo (todo.id)}
-      <div class="task" transition:fade={{ duration: 200 }}>
-        <input
-          type="checkbox"
-          checked={todo.completed}
-          on:change={() => toggleTodo(todo.id)}
-        />
-        <span class:completed={todo.completed}>{todo.text}</span>
-        {#if todo.label}
-          <span class="label">{todo.label}</span>
-        {/if}
-        <button class="delete-btn" on:click={() => deleteTodo(todo.id)}
-          >×</button
+      <div class="flex space-x-2 mt-4">
+        <button
+          on:click={clearTasks}
+          class="bg-red-500 text-white p-2 rounded flex items-center hover:bg-red-600 transition-colors"
         >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="mr-2"
+            ><path d="M3 6h18"></path><path
+              d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+            ></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line
+              x1="10"
+              y1="11"
+              x2="10"
+              y2="17"
+            ></line><line x1="14" y1="11" x2="14" y2="17"></line></svg
+          >
+          Clear All
+        </button>
+        <input
+          type="text"
+          placeholder="List Label"
+          bind:value={listLabel}
+          class="flex-grow p-2 border rounded"
+        />
+        <button
+          on:click={saveList}
+          class="bg-green-500 text-white p-2 rounded flex items-center hover:bg-green-600 transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="mr-2"
+            ><path
+              d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+            ></path><polyline points="17 21 17 13 7 13 7 21"
+            ></polyline><polyline points="7 3 7 8 15 8"></polyline></svg
+          >
+          Save List
+        </button>
       </div>
-    {/each}
-  </div>
-
-  <div class="input-group">
-    <textarea bind:value={bulkInput} placeholder="Enter tasks (one per line)"
-    ></textarea>
-    <button on:click={createTasksFromInput}>Create Tasks</button>
-  </div>
+    </div>
+  {/if}
+  {#if savedLists.length > 0}
+    <div class="space-y-2">
+      <h2 class="text-xl font-semibold">Saved Lists:</h2>
+      {#each savedLists as list, index}
+        <div class="flex items-center space-x-2">
+          <button
+            on:click={() => loadList(list)}
+            class="flex-grow bg-gray-200 p-2 rounded flex items-center hover:bg-gray-300 transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="mr-2"
+              ><line x1="8" y1="6" x2="21" y2="6"></line><line
+                x1="8"
+                y1="12"
+                x2="21"
+                y2="12"
+              ></line><line x1="8" y1="18" x2="21" y2="18"></line><line
+                x1="3"
+                y1="6"
+                x2="3.01"
+                y2="6"
+              ></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line
+                x1="3"
+                y1="18"
+                x2="3.01"
+                y2="18"
+              ></line></svg
+            >
+            {list.label}
+          </button>
+          <button
+            on:click={() => deleteSavedList(index)}
+            class="bg-red-500 text-white p-2 rounded hover:bg-red-600 transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              ><path d="M3 6h18"></path><path
+                d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+              ></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line
+                x1="10"
+                y1="11"
+                x2="10"
+                y2="17"
+              ></line><line x1="14" y1="11" x2="14" y2="17"></line></svg
+            >
+          </button>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </main>
 
 <style>
-  :root {
-    --primary-color: #3498db;
-    --secondary-color: #2ecc71;
-    --background-color: #f5f5f5;
-    --text-color: #333;
-    --border-color: #ddd;
-  }
-
-  main {
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    width: 100%;
-    height: 100vh;
-    margin: 0;
-    padding: 10px;
-    background-color: var(--background-color);
-    box-sizing: border-box;
-    overflow-y: auto;
-  }
-
-  h1 {
-    text-align: center;
-    color: var(--primary-color);
-    margin-bottom: 20px;
-    font-size: 1.5em;
-  }
-
-  .input-group {
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 15px;
-  }
-
-  input[type="text"],
-  select,
-  textarea {
-    width: 100%;
-    padding: 8px;
-    margin-bottom: 5px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    font-size: 14px;
-  }
-
-  textarea {
-    height: 80px;
-    resize: vertical;
-  }
-
-  button {
-    padding: 8px;
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-  }
-
-  button:hover {
-    background-color: #2980b9;
-  }
-
-  .task-list {
-    max-height: calc(100vh - 300px);
-    overflow-y: auto;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    padding: 10px;
-    margin-bottom: 15px;
-    background-color: white;
-  }
-
-  .task {
-    display: flex;
-    align-items: center;
-    margin-bottom: 8px;
-    padding: 8px;
-    background-color: #fff;
-    border-radius: 4px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    transition: background-color 0.3s ease;
-  }
-
-  .task:hover {
-    background-color: #f9f9f9;
-  }
-
-  .completed {
-    text-decoration: line-through;
-    color: #888;
-  }
-
-  .label {
-    background-color: var(--secondary-color);
-    color: white;
-    padding: 2px 5px;
-    border-radius: 3px;
-    margin-left: 5px;
-    font-size: 0.8em;
-  }
-
-  .delete-btn {
-    background-color: transparent;
-    color: #e74c3c;
-    font-size: 18px;
-    padding: 0 5px;
-    margin-left: auto;
-  }
-
-  .delete-btn:hover {
-    background-color: #e74c3c;
-    color: white;
-  }
-
-  /* Custom scrollbar styles */
-  .task-list::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .task-list::-webkit-scrollbar-track {
-    background: #f1f1f1;
-  }
-
-  .task-list::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 3px;
-  }
-
-  .task-list::-webkit-scrollbar-thumb:hover {
-    background: #555;
+  :global(body) {
+    background-color: #f3f4f6;
+    color: #1f2937;
   }
 </style>
