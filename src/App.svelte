@@ -1,4 +1,5 @@
 <script lang="ts">
+  /// <reference types="chrome" />
   import { onMount, onDestroy } from "svelte";
   import { fade } from "svelte/transition";
 
@@ -128,7 +129,7 @@
 </script>
 
 <main>
-  <h1>Enhanced Todo List</h1>
+  <h1>Todo List Sidebar</h1>
 
   <div class="input-group">
     <input type="text" bind:value={newTodo} placeholder="Add a new todo" />
@@ -183,43 +184,46 @@
 
   main {
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    max-width: 400px;
-    margin: 0 auto;
-    padding: 20px;
+    width: 100%;
+    height: 100vh;
+    margin: 0;
+    padding: 10px;
     background-color: var(--background-color);
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    box-sizing: border-box;
+    overflow-y: auto;
   }
 
   h1 {
     text-align: center;
     color: var(--primary-color);
     margin-bottom: 20px;
+    font-size: 1.5em;
   }
 
   .input-group {
     display: flex;
-    margin-bottom: 20px;
+    flex-direction: column;
+    margin-bottom: 15px;
   }
 
   input[type="text"],
   select,
   textarea {
-    flex-grow: 1;
-    padding: 10px;
-    margin-right: 10px;
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 5px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 14px;
   }
 
   textarea {
-    height: 100px;
+    height: 80px;
     resize: vertical;
   }
 
   button {
-    padding: 10px 15px;
+    padding: 8px;
     background-color: var(--primary-color);
     color: white;
     border: none;
@@ -233,20 +237,20 @@
   }
 
   .task-list {
-    max-height: 300px;
+    max-height: calc(100vh - 300px);
     overflow-y: auto;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 10px;
-    margin-bottom: 20px;
+    margin-bottom: 15px;
     background-color: white;
   }
 
   .task {
     display: flex;
     align-items: center;
-    margin-bottom: 10px;
-    padding: 10px;
+    margin-bottom: 8px;
+    padding: 8px;
     background-color: #fff;
     border-radius: 4px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -284,8 +288,9 @@
     color: white;
   }
 
+  /* Custom scrollbar styles */
   .task-list::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
   }
 
   .task-list::-webkit-scrollbar-track {
@@ -294,7 +299,7 @@
 
   .task-list::-webkit-scrollbar-thumb {
     background: #888;
-    border-radius: 4px;
+    border-radius: 3px;
   }
 
   .task-list::-webkit-scrollbar-thumb:hover {

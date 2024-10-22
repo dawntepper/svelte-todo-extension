@@ -1,10 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Todo List Extension",
+  "name": "Todo List Sidebar",
   "version": "1.0",
-  "description": "A simple todo list Chrome extension",
-  "action": {
-    "default_popup": "index.html"
+  "description": "A sidebar todo list extension",
+  "permissions": ["storage", "sidePanel"],
+  "side_panel": {
+    "default_path": "index.html"
   },
-  "permissions": ["storage"]
+  "background": {
+    "service_worker": "build/background.js"
+  },
+  "action": {
+    "default_title": "Open Todo List Sidebar"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
 }
