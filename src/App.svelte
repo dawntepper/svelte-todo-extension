@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
 
   interface TodoList {
+    id: string;
     label: string;
     tasks: { text: string; completed: boolean }[];
   }
@@ -10,6 +11,7 @@
   let tasks: { text: string; completed: boolean }[] = [];
   let listLabel = "";
   let savedLists: TodoList[] = [];
+  let selectedListId: string | null = null;
 
   onMount(() => {
     const saved = localStorage.getItem("savedTodoLists");
@@ -19,207 +21,234 @@
   });
 
   function createTasks() {
-    tasks = inputText
+    const newTasks = inputText
       .split(/\n|•|-/)
       .map((task) => task.trim())
       .filter((task) => task !== "")
       .map((task) => ({ text: task, completed: false }));
+
+    if (selectedListId) {
+      const listIndex = savedLists.findIndex(
+        (list) => list.id === selectedListId
+      );
+      if (listIndex !== -1) {
+        savedLists[listIndex].tasks = [
+          ...savedLists[listIndex].tasks,
+          ...newTasks,
+        ];
+        savedLists = [...savedLists];
+        localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
+      }
+    } else {
+      tasks = [...tasks, ...newTasks];
+    }
     inputText = "";
   }
 
-  function toggleTask(index: number) {
-    tasks[index].completed = !tasks[index].completed;
-    tasks = [...tasks];
-  }
-
-  function clearTasks() {
-    tasks = [];
-  }
-
-  function saveList() {
-    if (listLabel && tasks.length > 0) {
-      const newList = { label: listLabel, tasks };
-      savedLists = [...savedLists, newList];
-      localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
-      listLabel = "";
+  function toggleTask(listId: string | null, index: number) {
+    if (listId) {
+      const listIndex = savedLists.findIndex((list) => list.id === listId);
+      if (listIndex !== -1) {
+        savedLists[listIndex].tasks[index].completed =
+          !savedLists[listIndex].tasks[index].completed;
+        savedLists = [...savedLists];
+        localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
+      }
+    } else {
+      tasks[index].completed = !tasks[index].completed;
+      tasks = [...tasks];
     }
   }
 
-  function loadList(list: TodoList) {
-    tasks = [...list.tasks];
+  function clearTasks() {
+    if (selectedListId) {
+      const listIndex = savedLists.findIndex(
+        (list) => list.id === selectedListId
+      );
+      if (listIndex !== -1) {
+        savedLists[listIndex].tasks = [];
+        savedLists = [...savedLists];
+        localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
+      }
+    } else {
+      tasks = [];
+    }
+  }
+
+  function saveList() {
+    if (listLabel && (tasks.length > 0 || selectedListId)) {
+      if (selectedListId) {
+        const listIndex = savedLists.findIndex(
+          (list) => list.id === selectedListId
+        );
+        if (listIndex !== -1) {
+          savedLists[listIndex].label = listLabel;
+          savedLists = [...savedLists];
+        }
+      } else {
+        const newList = { id: Date.now().toString(), label: listLabel, tasks };
+        savedLists = [...savedLists, newList];
+        tasks = [];
+      }
+      localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
+      listLabel = "";
+      selectedListId = null;
+    }
+  }
+
+  function selectList(listId: string) {
+    selectedListId = listId;
+    const selectedList = savedLists.find((list) => list.id === listId);
+    if (selectedList) {
+      listLabel = selectedList.label;
+      tasks = [...selectedList.tasks];
+    }
   }
 
   function deleteSavedList(index: number) {
     savedLists = savedLists.filter((_, i) => i !== index);
     localStorage.setItem("savedTodoLists", JSON.stringify(savedLists));
+    if (savedLists[index]?.id === selectedListId) {
+      selectedListId = null;
+      tasks = [];
+      listLabel = "";
+    }
   }
 </script>
 
-<main class="max-w-md mx-auto p-4 space-y-4">
-  <h1 class="text-2xl font-bold text-center">Enhanced Todo List Creator</h1>
-  <textarea
-    placeholder="Paste your list here (one item per line, or use • or - for bullets)"
-    bind:value={inputText}
-    class="min-h-[150px] w-full p-2 border rounded"
-  ></textarea>
-  <button
-    on:click={createTasks}
-    class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition-colors"
-  >
-    Create Todo List
-  </button>
-  {#if tasks.length > 0}
-    <div class="space-y-2">
-      <h2 class="text-xl font-semibold">Your Todo List:</h2>
-      {#each tasks as task, index}
-        <div class="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            id="task-{index}"
-            bind:checked={task.completed}
-            on:change={() => toggleTask(index)}
-            class="form-checkbox h-5 w-5 text-blue-600"
-          />
-          <label
-            for="task-{index}"
-            class="flex-grow {task.completed
-              ? 'line-through text-gray-500'
-              : ''}"
-          >
-            {task.text}
-          </label>
-        </div>
-      {/each}
-      <div class="flex space-x-2 mt-4">
-        <button
-          on:click={clearTasks}
-          class="bg-red-500 text-white p-2 rounded flex items-center hover:bg-red-600 transition-colors"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="mr-2"
-            ><path d="M3 6h18"></path><path
-              d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
-            ></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line
-              x1="10"
-              y1="11"
-              x2="10"
-              y2="17"
-            ></line><line x1="14" y1="11" x2="14" y2="17"></line></svg
-          >
-          Clear All
-        </button>
-        <input
-          type="text"
-          placeholder="List Label"
-          bind:value={listLabel}
-          class="flex-grow p-2 border rounded"
-        />
-        <button
-          on:click={saveList}
-          class="bg-green-500 text-white p-2 rounded flex items-center hover:bg-green-600 transition-colors"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="mr-2"
-            ><path
-              d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
-            ></path><polyline points="17 21 17 13 7 13 7 21"
-            ></polyline><polyline points="7 3 7 8 15 8"></polyline></svg
-          >
-          Save List
-        </button>
-      </div>
-    </div>
-  {/if}
+<main class="max-w-md mx-auto p-4 space-y-4 bg-white shadow-lg rounded-lg">
+  <h1 class="text-2xl font-bold text-center text-gray-800">
+    Enhanced Todo List Creator
+  </h1>
+
   {#if savedLists.length > 0}
     <div class="space-y-2">
-      <h2 class="text-xl font-semibold">Saved Lists:</h2>
+      <h2 class="text-xl font-semibold text-gray-700">Saved Lists:</h2>
       {#each savedLists as list, index}
         <div class="flex items-center space-x-2">
           <button
-            on:click={() => loadList(list)}
-            class="flex-grow bg-gray-200 p-2 rounded flex items-center hover:bg-gray-300 transition-colors"
+            on:click={() => selectList(list.id)}
+            class="flex-grow bg-gray-200 p-2 rounded flex items-center hover:bg-gray-300 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 {selectedListId ===
+            list.id
+              ? 'bg-blue-200'
+              : ''}"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="mr-2"
-              ><line x1="8" y1="6" x2="21" y2="6"></line><line
-                x1="8"
-                y1="12"
-                x2="21"
-                y2="12"
-              ></line><line x1="8" y1="18" x2="21" y2="18"></line><line
-                x1="3"
-                y1="6"
-                x2="3.01"
-                y2="6"
-              ></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line
-                x1="3"
-                y1="18"
-                x2="3.01"
-                y2="18"
-              ></line></svg
+              class="h-5 w-5 mr-2"
+              viewBox="0 0 20 20"
+              fill="currentColor"
             >
-            {list.label}
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+              <path
+                fill-rule="evenodd"
+                d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            {list.label} ({list.tasks.length})
           </button>
           <button
             on:click={() => deleteSavedList(index)}
-            class="bg-red-500 text-white p-2 rounded hover:bg-red-600 transition-colors"
+            class="bg-red-500 text-white p-2 rounded hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-700 focus:ring-offset-2"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              ><path d="M3 6h18"></path><path
-                d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
-              ></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line
-                x1="10"
-                y1="11"
-                x2="10"
-                y2="17"
-              ></line><line x1="14" y1="11" x2="14" y2="17"></line></svg
+              class="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
             >
+              <path
+                fill-rule="evenodd"
+                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
+            </svg>
           </button>
         </div>
       {/each}
     </div>
   {/if}
-</main>
 
-<style>
-  :global(body) {
-    background-color: #f3f4f6;
-    color: #1f2937;
-  }
-</style>
+  <div class="space-y-2">
+    <h2 class="text-xl font-semibold text-gray-700">
+      {selectedListId ? "Edit List" : "Create New List"}
+    </h2>
+    <input
+      type="text"
+      placeholder="List Label"
+      bind:value={listLabel}
+      class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+    />
+    <textarea
+      placeholder="Enter tasks (one per line, or use • or - for bullets)"
+      bind:value={inputText}
+      class="w-full p-2 border rounded resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
+    ></textarea>
+    <div class="flex space-x-2">
+      <button
+        on:click={createTasks}
+        class="flex-grow bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+      >
+        {selectedListId ? "Add Tasks" : "Create Tasks"}
+      </button>
+      <button
+        on:click={saveList}
+        class="flex-grow bg-green-500 text-white p-2 rounded flex items-center justify-center hover:bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-5 w-5 mr-2"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z"
+          />
+        </svg>
+        {selectedListId ? "Update List" : "Save New List"}
+      </button>
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    <h2 class="text-xl font-semibold text-gray-700">Your Todo List:</h2>
+    {#each selectedListId ? savedLists.find((list) => list.id === selectedListId)?.tasks || [] : tasks as task, index}
+      <div class="flex items-center space-x-2 bg-gray-50 p-2 rounded">
+        <input
+          type="checkbox"
+          id="task-{index}"
+          bind:checked={task.completed}
+          on:change={() => toggleTask(selectedListId, index)}
+          class="form-checkbox h-5 w-5 text-blue-600 transition duration-150 ease-in-out"
+        />
+        <label
+          for="task-{index}"
+          class="flex-grow {task.completed
+            ? 'line-through text-gray-500'
+            : 'text-gray-700'}"
+        >
+          {task.text}
+        </label>
+      </div>
+    {/each}
+    <button
+      on:click={clearTasks}
+      class="w-full bg-red-500 text-white p-2 rounded flex items-center justify-center hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-700 focus:ring-offset-2"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-5 w-5 mr-2"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+      >
+        <path
+          fill-rule="evenodd"
+          d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+          clip-rule="evenodd"
+        />
+      </svg>
+      Clear All Tasks
+    </button>
+  </div>
+</main>
