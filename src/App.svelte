@@ -4,8 +4,6 @@
   import { flip } from "svelte/animate";
   import { fade, slide } from "svelte/transition";
   import {
-    Calendar,
-    CalendarDays,
     Trash2,
     ChevronRight,
     GripVertical,
@@ -13,6 +11,12 @@
     Edit,
     Sun,
     Moon,
+    Clock,
+    X,
+    Bell,
+    Info,
+    Coffee,
+    Calendar,
   } from "lucide-svelte";
 
   interface Todo {
@@ -21,6 +25,7 @@
     completed: boolean;
     dueDate?: string;
     showDateInput: boolean;
+    alertEnabled: boolean;
   }
 
   interface TodoList {
@@ -42,6 +47,8 @@
   let editingListId: string | null = null;
   let editingListLabel = "";
   let darkMode = false;
+  let use24HourFormat = false;
+  let showAbout = false;
 
   onMount(() => {
     loadData();
@@ -50,7 +57,9 @@
       "(prefers-color-scheme: dark)"
     ).matches;
     darkMode = localStorage.getItem("darkMode") === "true" || prefersDarkMode;
+    use24HourFormat = localStorage.getItem("use24HourFormat") === "true";
     applyTheme();
+    setupNotifications();
     return () => {
       window.removeEventListener("beforeunload", saveData);
     };
@@ -70,6 +79,12 @@
     applyTheme();
   }
 
+  function toggleTimeFormat() {
+    use24HourFormat = !use24HourFormat;
+    localStorage.setItem("use24HourFormat", use24HourFormat.toString());
+    lists = [...lists]; // Trigger a re-render
+  }
+
   async function loadData(): Promise<void> {
     try {
       const result = await chrome.storage.sync.get([
@@ -85,6 +100,10 @@
             showDateInput: false,
           })),
         }));
+        // Open the latest list by default
+        if (lists.length > 0) {
+          lists[0].expanded = true;
+        }
       } else {
         lists = [];
       }
@@ -164,7 +183,7 @@
             todos: list.todos.map((todo) =>
               todo.id === todoId
                 ? { ...todo, showDateInput: !todo.showDateInput }
-                : todo
+                : { ...todo, showDateInput: false }
             ),
           }
         : list
@@ -197,6 +216,7 @@
         text: newTodoText.trim(),
         completed: false,
         showDateInput: false,
+        alertEnabled: false,
       };
       lists = lists.map((list) =>
         list.id === listId ? { ...list, todos: [...list.todos, newTodo] } : list
@@ -216,6 +236,7 @@
           text: text.trim(),
           completed: false,
           showDateInput: false,
+          alertEnabled: false,
         }));
 
       lists = lists.map((list) =>
@@ -237,11 +258,16 @@
   function formatDate(date: string | undefined): string {
     if (!date) return "";
     const d = new Date(date);
-    return d.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    return d
+      .toLocaleString(undefined, {
+        year: "2-digit",
+        month: "2-digit",
+        day: "2-digit",
+        hour: use24HourFormat ? "2-digit" : "numeric",
+        minute: "2-digit",
+        hour12: !use24HourFormat,
+      })
+      .replace(",", "");
   }
 
   function handleNewListKeydown(event: KeyboardEvent): void {
@@ -256,11 +282,23 @@
     }
   }
 
-  function handleDateChange(e: Event, todo: Todo): void {
+  function handleDateChange(e: Event, todo: Todo, listId: string): void {
     const target = e.target as HTMLInputElement;
-    todo.dueDate = target.value;
+    const localDate = new Date(target.value);
+    todo.dueDate = localDate.toISOString();
     todo.showDateInput = false;
     saveData();
+    if (todo.alertEnabled) {
+      setupNotification(todo, listId);
+    }
+  }
+
+  function toggleAlert(todo: Todo, listId: string): void {
+    todo.alertEnabled = !todo.alertEnabled;
+    saveData();
+    if (todo.alertEnabled && todo.dueDate) {
+      setupNotification(todo, listId);
+    }
   }
 
   function getDateColor(date: string | undefined): string {
@@ -268,11 +306,11 @@
     const today = new Date();
     const dueDate = new Date(date);
     const diffTime = dueDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffHours = diffTime / (1000 * 60 * 60);
 
-    if (diffDays < 0) return "text-red-500 dark:text-red-400";
-    if (diffDays === 0) return "text-yellow-500 dark:text-yellow-400";
-    if (diffDays <= 3) return "text-orange-500 dark:text-orange-400";
+    if (diffHours < 0) return "text-red-500 dark:text-red-400";
+    if (diffHours <= 2) return "text-yellow-500 dark:text-yellow-400";
+    if (diffHours <= 24) return "text-orange-500 dark:text-orange-400";
     return "text-green-500 dark:text-green-400";
   }
 
@@ -319,6 +357,49 @@
     }
   }
 
+  function setupNotifications() {
+    if ("Notification" in window) {
+      Notification.requestPermission();
+    }
+    lists.forEach((list) => {
+      list.todos.forEach((todo) => {
+        if (todo.dueDate && todo.alertEnabled) {
+          setupNotification(todo, list.id);
+        }
+      });
+    });
+  }
+
+  function setupNotification(todo: Todo, listId: string) {
+    if (todo.dueDate) {
+      const dueTime = new Date(todo.dueDate).getTime();
+      const currentTime = new Date().getTime();
+      const timeUntilDue = dueTime - currentTime;
+
+      if (timeUntilDue > 0) {
+        setTimeout(() => {
+          showNotification(todo, listId);
+        }, timeUntilDue);
+      }
+    }
+  }
+
+  function showNotification(todo: Todo, listId: string) {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Todo Due", {
+        body: `Your todo "${todo.text}" is due now!`,
+      });
+    }
+    // You can also use chrome.notifications API for more advanced notifications
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icon.png",
+      title: "Todo Due",
+      message: `Your todo "${todo.text}" is due now!`,
+      priority: 2,
+    });
+  }
+
   const handleTodoConsider = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
     handleDndConsider(e, listId);
   const handleTodoFinalize = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
@@ -344,17 +425,41 @@
       <h1 class="text-xl font-bold text-blue-600 dark:text-white">
         Just A Todo List
       </h1>
-      <button
-        class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        on:click={toggleDarkMode}
-        aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-      >
-        {#if darkMode}
-          <Sun size={20} class="text-white" />
-        {:else}
-          <Moon size={20} />
-        {/if}
-      </button>
+      <div class="flex items-center space-x-4">
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => (showAbout = true)}
+          aria-label="About"
+          title="About"
+        >
+          <Info size={20} />
+        </button>
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
+          on:click={toggleTimeFormat}
+          aria-label={use24HourFormat
+            ? "Switch to 12-hour format"
+            : "Switch to 24-hour format"}
+          title={use24HourFormat
+            ? "Switch to 12-hour format"
+            : "Switch to 24-hour format"}
+        >
+          <Clock size={20} />
+          <span class="ml-1 text-xs">{use24HourFormat ? "24h" : "12h"}</span>
+        </button>
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={toggleDarkMode}
+          aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {#if darkMode}
+            <Sun size={20} class="text-white" />
+          {:else}
+            <Moon size={20} />
+          {/if}
+        </button>
+      </div>
     </div>
   </header>
 
@@ -423,24 +528,27 @@
           on:consider={handleListDndConsider}
           on:finalize={handleListDndFinalize}
         >
-          {#each filteredLists as list (list.id)}
+          {#each filteredLists as list, index (list.id)}
             <div animate:flip={{ duration: 300 }}>
               <div
-                class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2"
+                class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2 bg-white dark:bg-gray-800"
               >
-                <div
-                  class="flex items-center justify-between p-3 cursor-pointer text-left"
+                <button
+                  type="button"
+                  class="w-full flex items-center justify-between p-3 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-blue-500 {index %
+                    2 ===
+                  0
+                    ? 'bg-white dark:bg-gray-800'
+                    : 'bg-gray-200 dark:bg-gray-700'}"
+                  on:click={() => toggleListExpansion(list.id)}
+                  title="Click to expand/collapse list"
                 >
                   <div class="flex items-center space-x-2 flex-grow">
                     <GripVertical
                       size={16}
                       class="text-gray-400 dark:text-gray-500 cursor-move"
                     />
-                    <button
-                      type="button"
-                      class="flex items-center space-x-2"
-                      on:click={() => toggleListExpansion(list.id)}
-                    >
+                    <div class="flex items-center space-x-2">
                       <ChevronRight
                         size={16}
                         class="transform transition-transform duration-200 {list.expanded
@@ -453,7 +561,7 @@
                           on:blur={saveEditingListName}
                           on:keydown={(e) =>
                             e.key === "Enter" && saveEditingListName()}
-                          class="text-base font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 bg-transparent"
+                          class="text-base font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 bg-yellow-100 dark:bg-yellow-900"
                         />
                       {:else}
                         <h2
@@ -462,13 +570,14 @@
                           {list.label}
                         </h2>
                       {/if}
-                    </button>
+                    </div>
                   </div>
                   <div class="flex items-center space-x-2">
                     <button
                       type="button"
                       class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none"
-                      on:click={() => startEditingListName(list.id)}
+                      on:click|stopPropagation={() =>
+                        startEditingListName(list.id)}
                       title="Edit list name"
                     >
                       <Edit size={16} />
@@ -476,21 +585,21 @@
                     <button
                       type="button"
                       class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 focus:outline-none"
-                      on:click={() => copyList(list.id)}
-                      title="Duplicate list"
+                      on:click|stopPropagation={() => copyList(list.id)}
+                      title="Copy list"
                     >
                       <Copy size={16} />
                     </button>
                     <button
                       type="button"
                       class="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 focus:outline-none"
-                      on:click={() => deleteList(list.id)}
+                      on:click|stopPropagation={() => deleteList(list.id)}
                       title="Delete list"
                     >
                       <Trash2 size={16} />
                     </button>
                   </div>
-                </div>
+                </button>
                 {#if list.expanded}
                   <div transition:slide|local={{ duration: 300 }}>
                     <div class="p-3 border-t dark:border-gray-700">
@@ -531,39 +640,79 @@
                                 >
                                   {todo.text}
                                 </label>
-                                {#if todo.dueDate}
-                                  <span
-                                    class="text-sm {getDateColor(
+                                <div class="flex items-center space-x-2">
+                                  <button
+                                    type="button"
+                                    class="{getDateColor(
                                       todo.dueDate
-                                    )} mr-2"
+                                    )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    on:click={() =>
+                                      toggleDateInput(list.id, todo.id)}
+                                    aria-label={todo.dueDate
+                                      ? "Edit due date and time"
+                                      : "Set due date and time"}
+                                    title={todo.dueDate
+                                      ? "Edit due date and time"
+                                      : "Set due date and time"}
                                   >
-                                    {formatDate(todo.dueDate)}
-                                  </span>
-                                {/if}
-                                <button
-                                  type="button"
-                                  class="{getDateColor(
-                                    todo.dueDate
-                                  )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  on:click={() =>
-                                    toggleDateInput(list.id, todo.id)}
-                                  aria-label={todo.showDateInput
-                                    ? "Hide date input"
-                                    : "Show date input"}
-                                >
-                                  <CalendarDays size={16} />
-                                </button>
+                                    {#if todo.dueDate}
+                                      <Calendar size={16} />
+                                    {:else}
+                                      <Clock size={16} />
+                                    {/if}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="{todo.alertEnabled
+                                      ? 'text-blue-500'
+                                      : 'text-gray-400'} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    on:click={() => toggleAlert(todo, list.id)}
+                                    aria-label={todo.alertEnabled
+                                      ? "Disable alert"
+                                      : "Enable alert"}
+                                    title={todo.alertEnabled
+                                      ? "Disable alert"
+                                      : "Enable alert"}
+                                  >
+                                    <Bell size={16} />
+                                  </button>
+                                </div>
                               </div>
                               {#if todo.showDateInput}
                                 <div
                                   class="mt-2 ml-8 flex items-center space-x-2"
                                 >
-                                  <input
-                                    type="date"
-                                    value={todo.dueDate || ""}
-                                    on:change={(e) => handleDateChange(e, todo)}
-                                    class="p-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
-                                  />
+                                  <div class="relative flex-grow">
+                                    <input
+                                      type="datetime-local"
+                                      value={todo.dueDate
+                                        ? new Date(todo.dueDate)
+                                            .toISOString()
+                                            .slice(0, 16)
+                                        : new Date().toISOString().slice(0, 16)}
+                                      on:change={(e) =>
+                                        handleDateChange(e, todo, list.id)}
+                                      class="w-full p-1 pr-8 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                                    />
+                                    <button
+                                      type="button"
+                                      class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"
+                                      on:click={() =>
+                                        toggleDateInput(list.id, todo.id)}
+                                      aria-label="Close date input"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                  {#if todo.dueDate}
+                                    <span
+                                      class="text-sm {getDateColor(
+                                        todo.dueDate
+                                      )}"
+                                    >
+                                      {formatDate(todo.dueDate)}
+                                    </span>
+                                  {/if}
                                 </div>
                               {/if}
                             </div>
@@ -596,6 +745,40 @@
       </div>
     </div>
   </div>
+
+  {#if showAbout}
+    <div
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
+    >
+      <div
+        class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+      >
+        <h2 class="text-2xl font-bold mb-4">About Enhanced Todo List</h2>
+        <p class="mb-4">
+          I hope you enjoy this simple yet powerful todo list! It's designed to
+          help you stay organized and productive.
+        </p>
+        <p class="mb-4">
+          If you find this app useful, consider supporting its development:
+        </p>
+        <a
+          href="https://ko-fi.com/yourusername"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
+        >
+          <Coffee size={20} class="mr-2" />
+          Buy me a coffee
+        </a>
+        <button
+          class="mt-4 px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
+          on:click={() => (showAbout = false)}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
