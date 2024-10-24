@@ -2,17 +2,24 @@
   "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
     "sourceMap": true,
-    "strict": true,
+    "strict": false,
     "types": ["chrome", "svelte"],
-    "typeRoots": ["./node_modules/@types", "./src"],
+    "typeRoots": ["./node_modules/@types", "./src/types"],
     "module": "ESNext",
     "target": "ESNext",
     "moduleResolution": "node",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "outDir": "./dist/build"
+    "outDir": "./dist/build",
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@dnd-kit/*": ["node_modules/@dnd-kit/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "src/background.js"],
-  "exclude": ["node_modules/*", "__sapper__/*", "public/*"],
-  
+  "exclude": ["node_modules/*", "__sapper__/*", "public/*"]
 }

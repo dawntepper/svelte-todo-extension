@@ -63,7 +63,8 @@ export default {
             targets: [
                 { src: 'src/index.html', dest: 'dist' },
                 { src: 'src/manifest.json', dest: 'dist' },
-                { src: 'src/*.png', dest: 'dist' }
+                { src: 'src/*.png', dest: 'dist' },
+                { src: 'src/background.js', dest: 'dist/build' }
             ]
         }),
         resolve({
