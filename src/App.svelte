@@ -14,7 +14,6 @@
     Clock,
     X,
     Bell,
-    Info,
     Coffee,
     Calendar,
   } from "lucide-svelte";
@@ -51,6 +50,7 @@
   let use24HourFormat = false;
   let showAbout = false;
   let notificationPermission: NotificationPermission = "default";
+  let showCoffeeTooltip = false;
 
   onMount(() => {
     loadData();
@@ -452,14 +452,24 @@
         Enhanced Todo List
       </h1>
       <div class="flex items-center space-x-4">
-        <button
-          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => (showAbout = true)}
-          aria-label="About"
-          title="About"
-        >
-          <Info size={20} />
-        </button>
+        <div class="relative">
+          <button
+            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            on:mouseenter={() => (showCoffeeTooltip = true)}
+            on:mouseleave={() => (showCoffeeTooltip = false)}
+            on:click={() => (showAbout = true)}
+            aria-label="About"
+          >
+            <Coffee size={24} class="text-brown-500" />
+          </button>
+          {#if showCoffeeTooltip}
+            <div
+              class="absolute right-0 mt-2 p-2 bg-white dark:bg-gray-800 rounded shadow-lg text-sm"
+            >
+              Click to support the developer!
+            </div>
+          {/if}
+        </div>
         <button
           class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           on:click={toggleTimeFormat}
@@ -488,11 +498,11 @@
     </div>
   </header>
 
-  <div class="flex-1 w-full max-w-4xl mx-auto p-4 overflow-y-auto">
-    <div class="space-y-4">
-      <div
-        class="flex space-x-2 sticky top-0 bg-gray-100 dark:bg-gray-900 py-2"
-      >
+  <div
+    class="flex-1 w-full max-w-4xl mx-auto p-4 overflow-hidden flex flex-col"
+  >
+    <div class="space-y-4 sticky top-0 bg-gray-100 dark:bg-gray-900 z-10 pb-4">
+      <div class="flex space-x-2">
         <input
           class="flex-grow p-2 border rounded-l focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
           placeholder="New list name"
@@ -546,229 +556,229 @@
           </div>
         </div>
       {/if}
+    </div>
 
-      <div class="space-y-2">
-        <section
-          use:dndzone={{ items: filteredLists, flipDurationMs: 300 }}
-          on:consider={handleListDndConsider}
-          on:finalize={handleListDndFinalize}
-        >
-          {#each filteredLists as list, index (list.id)}
-            <div animate:flip={{ duration: 300 }}>
-              <div
-                class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2 bg-white dark:bg-gray-800"
+    <div class="space-y-2 overflow-y-auto flex-1">
+      <section
+        use:dndzone={{ items: filteredLists, flipDurationMs: 300 }}
+        on:consider={handleListDndConsider}
+        on:finalize={handleListDndFinalize}
+      >
+        {#each filteredLists as list, index (list.id)}
+          <div animate:flip={{ duration: 300 }}>
+            <div
+              class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2 bg-white dark:bg-gray-800"
+            >
+              <button
+                type="button"
+                class="w-full flex items-center justify-between p-3 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-blue-500 {index %
+                  2 ===
+                0
+                  ? 'bg-white dark:bg-gray-800'
+                  : 'bg-gray-200 dark:bg-gray-700'}"
+                on:click={() => toggleListExpansion(list.id)}
+                title="Click to expand/collapse list"
               >
-                <button
-                  type="button"
-                  class="w-full flex items-center justify-between p-3 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-blue-500 {index %
-                    2 ===
-                  0
-                    ? 'bg-white dark:bg-gray-800'
-                    : 'bg-gray-200 dark:bg-gray-700'}"
-                  on:click={() => toggleListExpansion(list.id)}
-                  title="Click to expand/collapse list"
-                >
-                  <div class="flex items-center space-x-2 flex-grow">
-                    <GripVertical
-                      size={16}
-                      class="text-gray-400 dark:text-gray-500 cursor-move"
-                    />
-                    <div class="flex items-center space-x-2">
-                      <ChevronRight
-                        size={16}
-                        class="transform transition-transform duration-200 {list.expanded
-                          ? 'rotate-90'
-                          : ''}"
-                      />
-                      {#if editingListId === list.id}
-                        <input
-                          bind:value={editingListLabel}
-                          on:blur={saveEditingListName}
-                          on:keydown={(e) =>
-                            e.key === "Enter" && saveEditingListName()}
-                          class="text-base font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 bg-yellow-100 dark:bg-yellow-900"
-                        />
-                      {:else}
-                        <h2
-                          class="text-base font-semibold text-gray-800 dark:text-gray-200 truncate"
-                        >
-                          {list.label}
-                        </h2>
-                      {/if}
-                    </div>
-                  </div>
+                <div class="flex items-center space-x-2 flex-grow">
+                  <GripVertical
+                    size={16}
+                    class="text-gray-400 dark:text-gray-500 cursor-move"
+                  />
                   <div class="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none"
-                      on:click|stopPropagation={() =>
-                        startEditingListName(list.id)}
-                      title="Edit list name"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 focus:outline-none"
-                      on:click|stopPropagation={() => copyList(list.id)}
-                      title="Copy list"
-                    >
-                      <Copy size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      class="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 focus:outline-none"
-                      on:click|stopPropagation={() => deleteList(list.id)}
-                      title="Delete list"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <ChevronRight
+                      size={16}
+                      class="transform transition-transform duration-200 {list.expanded
+                        ? 'rotate-90'
+                        : ''}"
+                    />
+                    {#if editingListId === list.id}
+                      <input
+                        bind:value={editingListLabel}
+                        on:blur={saveEditingListName}
+                        on:keydown={(e) =>
+                          e.key === "Enter" && saveEditingListName()}
+                        class="text-base font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 bg-yellow-100 dark:bg-yellow-900"
+                      />
+                    {:else}
+                      <h2
+                        class="text-base font-semibold text-gray-800 dark:text-gray-200 truncate"
+                      >
+                        {list.label}
+                      </h2>
+                    {/if}
                   </div>
-                </button>
-                {#if list.expanded}
-                  <div transition:slide|local={{ duration: 300 }}>
-                    <div class="p-3 border-t dark:border-gray-700">
-                      <div class="space-y-2">
-                        <section
-                          use:dndzone={{
-                            items: list.todos || [],
-                            flipDurationMs: 300,
-                            dropTargetStyle: {
-                              outline: "none",
-                            },
-                            dropFromOthersDisabled: true,
-                          }}
-                          on:consider={(e) => handleTodoConsider(e, list.id)}
-                          on:finalize={(e) => handleTodoFinalize(e, list.id)}
-                        >
-                          {#each list.todos || [] as todo (todo.id)}
-                            <div animate:flip={{ duration: 300 }}>
-                              <div
-                                class="flex items-center p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"
+                </div>
+                <div class="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none"
+                    on:click|stopPropagation={() =>
+                      startEditingListName(list.id)}
+                    title="Edit list name"
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 focus:outline-none"
+                    on:click|stopPropagation={() => copyList(list.id)}
+                    title="Copy list"
+                  >
+                    <Copy size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    class="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 focus:outline-none"
+                    on:click|stopPropagation={() => deleteList(list.id)}
+                    title="Delete list"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </button>
+              {#if list.expanded}
+                <div transition:slide|local={{ duration: 300 }}>
+                  <div class="p-3 border-t dark:border-gray-700">
+                    <div class="space-y-2">
+                      <section
+                        use:dndzone={{
+                          items: list.todos || [],
+                          flipDurationMs: 300,
+                          dropTargetStyle: {
+                            outline: "none",
+                          },
+                          dropFromOthersDisabled: true,
+                        }}
+                        on:consider={(e) => handleTodoConsider(e, list.id)}
+                        on:finalize={(e) => handleTodoFinalize(e, list.id)}
+                      >
+                        {#each list.todos || [] as todo (todo.id)}
+                          <div animate:flip={{ duration: 300 }}>
+                            <div
+                              class="flex items-center p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"
+                            >
+                              <GripVertical
+                                size={16}
+                                class="text-gray-400 dark:text-gray-500 cursor-move mr-2"
+                              />
+                              <input
+                                type="checkbox"
+                                id={`todo-${todo.id}`}
+                                checked={todo.completed}
+                                on:change={() => toggleTodo(list.id, todo.id)}
+                                class="form-checkbox h-4 w-4 text-blue-600 transition duration-150 ease-in-out mr-2"
+                              />
+                              <label
+                                for={`todo-${todo.id}`}
+                                class="flex-grow text-sm {todo.completed
+                                  ? 'line-through text-gray-500 dark:text-gray-400'
+                                  : 'text-gray-800 dark:text-gray-200'} cursor-pointer"
                               >
-                                <GripVertical
-                                  size={16}
-                                  class="text-gray-400 dark:text-gray-500 cursor-move mr-2"
-                                />
-                                <input
-                                  type="checkbox"
-                                  id={`todo-${todo.id}`}
-                                  checked={todo.completed}
-                                  on:change={() => toggleTodo(list.id, todo.id)}
-                                  class="form-checkbox h-4 w-4 text-blue-600 transition duration-150 ease-in-out mr-2"
-                                />
-                                <label
-                                  for={`todo-${todo.id}`}
-                                  class="flex-grow text-sm {todo.completed
-                                    ? 'line-through text-gray-500 dark:text-gray-400'
-                                    : 'text-gray-800 dark:text-gray-200'} cursor-pointer"
+                                {todo.text}
+                              </label>
+                              <div class="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  class="flex items-center space-x-1 {getDateColor(
+                                    todo.dueDate,
+                                    todo.completed
+                                  )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  on:click={() =>
+                                    toggleDateInput(list.id, todo.id)}
+                                  aria-label={todo.dueDate
+                                    ? "Edit due date and time"
+                                    : "Set due date and time"}
+                                  title={todo.dueDate
+                                    ? "Edit due date and time"
+                                    : "Set due date and time"}
                                 >
-                                  {todo.text}
-                                </label>
-                                <div class="flex items-center space-x-2">
+                                  {#if todo.dueDate && !todo.completed}
+                                    <span class="text-sm whitespace-nowrap">
+                                      {formatDate(todo.dueDate)}
+                                    </span>
+                                    <Calendar size={16} />
+                                  {:else}
+                                    <Clock size={16} />
+                                  {/if}
+                                </button>
+                                <button
+                                  type="button"
+                                  class="{todo.alertEnabled
+                                    ? 'text-blue-500'
+                                    : 'text-gray-400'} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  on:click={() => toggleAlert(todo, list.id)}
+                                  aria-label={todo.alertEnabled
+                                    ? "Disable alert"
+                                    : "Enable alert"}
+                                  title={todo.alertEnabled
+                                    ? "Disable alert"
+                                    : "Enable alert"}
+                                >
+                                  <Bell size={16} />
+                                </button>
+                              </div>
+                            </div>
+                            {#if todo.showDateInput}
+                              <div
+                                class="mt-2 ml-8 flex items-center space-x-2"
+                              >
+                                <div class="relative flex-grow">
+                                  <input
+                                    type="datetime-local"
+                                    value={todo.dueDate
+                                      ? getLocalISOString(
+                                          new Date(todo.dueDate)
+                                        )
+                                      : getLocalISOString(new Date())}
+                                    on:change={(e) =>
+                                      handleDateChange(e, todo, list.id)}
+                                    class="w-full p-1 pr-8 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                                  />
                                   <button
                                     type="button"
-                                    class="flex items-center space-x-1 {getDateColor(
-                                      todo.dueDate,
-                                      todo.completed
-                                    )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"
                                     on:click={() =>
                                       toggleDateInput(list.id, todo.id)}
-                                    aria-label={todo.dueDate
-                                      ? "Edit due date and time"
-                                      : "Set due date and time"}
-                                    title={todo.dueDate
-                                      ? "Edit due date and time"
-                                      : "Set due date and time"}
+                                    aria-label="Close date input"
                                   >
-                                    {#if todo.dueDate && !todo.completed}
-                                      <Calendar size={16} />
-                                      <span class="text-sm whitespace-nowrap">
-                                        {formatDate(todo.dueDate)}
-                                      </span>
-                                    {:else}
-                                      <Clock size={16} />
-                                    {/if}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="{todo.alertEnabled
-                                      ? 'text-blue-500'
-                                      : 'text-gray-400'} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    on:click={() => toggleAlert(todo, list.id)}
-                                    aria-label={todo.alertEnabled
-                                      ? "Disable alert"
-                                      : "Enable alert"}
-                                    title={todo.alertEnabled
-                                      ? "Disable alert"
-                                      : "Enable alert"}
-                                  >
-                                    <Bell size={16} />
+                                    <X size={14} />
                                   </button>
                                 </div>
                               </div>
-                              {#if todo.showDateInput}
-                                <div
-                                  class="mt-2 ml-8 flex items-center space-x-2"
-                                >
-                                  <div class="relative flex-grow">
-                                    <input
-                                      type="datetime-local"
-                                      value={todo.dueDate
-                                        ? getLocalISOString(
-                                            new Date(todo.dueDate)
-                                          )
-                                        : getLocalISOString(new Date())}
-                                      on:change={(e) =>
-                                        handleDateChange(e, todo, list.id)}
-                                      class="w-full p-1 pr-8 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
-                                    />
-                                    <button
-                                      type="button"
-                                      class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"
-                                      on:click={() =>
-                                        toggleDateInput(list.id, todo.id)}
-                                      aria-label="Close date input"
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                  </div>
-                                </div>
-                              {/if}
-                            </div>
-                          {/each}
-                        </section>
-                      </div>
-                      <div class="mt-3">
-                        <input
-                          class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
-                          placeholder="New todo item"
-                          bind:value={newTodoText}
-                          on:keydown={(e) =>
-                            handleNewTodoKeydownEvent(e, list.id)}
-                        />
-                        <button
-                          type="button"
-                          class="w-full mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
-                          on:click={() => addTodo(list.id)}
-                        >
-                          Add Todo
-                        </button>
-                      </div>
+                            {/if}
+                          </div>
+                        {/each}
+                      </section>
+                    </div>
+                    <div class="mt-3">
+                      <input
+                        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                        placeholder="New todo item"
+                        bind:value={newTodoText}
+                        on:keydown={(e) =>
+                          handleNewTodoKeydownEvent(e, list.id)}
+                      />
+                      <button
+                        type="button"
+                        class="w-full mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
+                        on:click={() => addTodo(list.id)}
+                      >
+                        Add Todo
+                      </button>
                     </div>
                   </div>
-                {/if}
-              </div>
+                </div>
+              {/if}
             </div>
-          {/each}
-        </section>
-      </div>
+          </div>
+        {/each}
+      </section>
     </div>
   </div>
 
   {#if showAbout}
     <div
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
     >
       <div
         class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
