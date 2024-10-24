@@ -3,7 +3,13 @@
   import { dndzone, type DndEvent } from "svelte-dnd-action";
   import { flip } from "svelte/animate";
   import { fade, fly, slide } from "svelte/transition";
-  import { Calendar, CalendarDays } from "lucide-svelte";
+  import {
+    Calendar,
+    CalendarDays,
+    Trash2,
+    ChevronRight,
+    GripVertical,
+  } from "lucide-svelte";
 
   interface Todo {
     id: string;
@@ -207,19 +213,16 @@
     }
   }
 
-  function handleDateChange(e: Event, todo: Todo): void {
-    const target = e.currentTarget as HTMLInputElement; // Type assertion
-    if (target) {
-      // Null check
-      todo.dueDate = target.value;
-      saveData();
+  function handleNewTodoKeydown(event: KeyboardEvent, listId: string): void {
+    if (event.key === "Enter") {
+      addTodo(listId);
     }
   }
 
-  function handleNewTodoKeydown(e: KeyboardEvent, listId: string) {
-    if (e.key === "Enter") {
-      addTodo(listId);
-    }
+  function handleDateChange(e: Event, todo: Todo): void {
+    const target = e.target as HTMLInputElement;
+    todo.dueDate = target.value;
+    saveData();
   }
 
   function getDateColor(date: string | undefined): string {
@@ -233,6 +236,11 @@
     if (diffDays === 0) return "text-yellow-500";
     if (diffDays <= 3) return "text-orange-500";
     return "text-green-500";
+  }
+
+  function deleteList(listId: string): void {
+    lists = lists.filter((list) => list.id !== listId);
+    saveData();
   }
 
   const handleTodoConsider = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
@@ -304,130 +312,144 @@
         </div>
       </div>
 
-      <div class="space-y-4">
+      <div class="space-y-6">
         <section
           use:dndzone={{ items: filteredLists, flipDurationMs: 300 }}
           on:consider={handleListDndConsider}
           on:finalize={handleListDndFinalize}
         >
           {#each filteredLists as list (list.id)}
-            <div
-              animate:flip={{ duration: 300 }}
-              class="bg-white border rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200"
-            >
-              <button
-                type="button"
-                class="w-full flex items-center justify-between p-4 cursor-pointer text-left"
-                on:click={() => toggleListExpansion(list.id)}
+            <div animate:flip={{ duration: 300 }}>
+              <div
+                class="bg-white border rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-6"
               >
-                <h2 class="text-xl font-semibold text-gray-800 truncate">
-                  {list.label}
-                </h2>
-                <span
-                  class="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
-                  title={list.expanded ? "Collapse" : "Expand"}
+                <div
+                  class="flex items-center justify-between p-4 cursor-pointer text-left"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-6 w-6"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d={list.expanded
-                        ? "M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z"
-                        : "M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z"}
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </span>
-              </button>
-              {#if list.expanded}
-                <div transition:slide|local>
-                  <div class="p-4 border-t">
-                    <div class="space-y-2">
-                      <section
-                        use:dndzone={{ items: list.todos, flipDurationMs: 300 }}
-                        on:consider={(e) => handleTodoConsider(e, list.id)}
-                        on:finalize={(e) => handleTodoFinalize(e, list.id)}
-                      >
-                        {#each list.todos as todo (todo.id)}
-                          <div
-                            animate:flip={{ duration: 300 }}
-                            class="flex flex-col p-3 bg-gray-50 rounded hover:bg-gray-100 transition-colors duration-200"
-                          >
-                            <div class="flex items-center space-x-3">
-                              <input
-                                type="checkbox"
-                                id={`todo-${todo.id}`}
-                                checked={todo.completed}
-                                on:change={() => toggleTodo(list.id, todo.id)}
-                                class="form-checkbox h-5 w-5 text-blue-600 transition duration-150 ease-in-out"
-                              />
-                              <label
-                                for={`todo-${todo.id}`}
-                                class="flex-grow {todo.completed
-                                  ? 'line-through text-gray-500'
-                                  : 'text-gray-800'} cursor-pointer"
-                              >
-                                {todo.text}
-                                {#if todo.dueDate}
-                                  <span
-                                    class="ml-2 text-sm {getDateColor(
-                                      todo.dueDate
-                                    )}"
-                                  >
-                                    | {formatDate(todo.dueDate)}
-                                  </span>
-                                {/if}
-                              </label>
-                              <button
-                                type="button"
-                                class="{getDateColor(
-                                  todo.dueDate
-                                )} hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                on:click={() =>
-                                  toggleDateInput(list.id, todo.id)}
-                                aria-label={todo.showDateInput
-                                  ? "Hide date input"
-                                  : "Show date input"}
-                              >
-                                <CalendarDays size={20} />
-                              </button>
-                            </div>
-                            {#if todo.showDateInput}
-                              <div class="mt-2 flex items-center space-x-2">
-                                <input
-                                  type="date"
-                                  value={todo.dueDate || ""}
-                                  on:change={(e) => handleDateChange(e, todo)}
-                                  class="p-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                            {/if}
-                          </div>
-                        {/each}
-                      </section>
-                    </div>
-                    <div class="mt-4">
-                      <input
-                        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="New todo item"
-                        bind:value={newTodoText}
-                        on:keydown={(e) => handleNewTodoKeydown(e, list.id)}
+                  <div class="flex items-center space-x-2 flex-grow">
+                    <GripVertical size={16} class="text-gray-400 cursor-move" />
+                    <button
+                      type="button"
+                      class="flex items-center space-x-2"
+                      on:click={() => toggleListExpansion(list.id)}
+                    >
+                      <ChevronRight
+                        size={16}
+                        class="transform transition-transform duration-200 {list.expanded
+                          ? 'rotate-90'
+                          : ''}"
                       />
-                      <button
-                        type="button"
-                        class="w-full mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
-                        on:click={() => addTodo(list.id)}
+                      <h2
+                        class="text-base font-semibold text-gray-800 truncate"
                       >
-                        Add Todo
-                      </button>
+                        {list.label}
+                      </h2>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    class="text-gray-500 hover:text-red-600 focus:outline-none"
+                    on:click={() => deleteList(list.id)}
+                    title="Delete list"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+                {#if list.expanded}
+                  <div transition:slide|local>
+                    <div class="p-4 border-t">
+                      <div class="space-y-2">
+                        <section
+                          use:dndzone={{
+                            items: list.todos,
+                            flipDurationMs: 300,
+                          }}
+                          on:consider={(e) => handleTodoConsider(e, list.id)}
+                          on:finalize={(e) => handleTodoFinalize(e, list.id)}
+                        >
+                          {#each list.todos as todo (todo.id)}
+                            <div animate:flip={{ duration: 300 }}>
+                              <div
+                                class="flex items-center p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors duration-200"
+                              >
+                                <GripVertical
+                                  size={16}
+                                  class="text-gray-400 cursor-move mr-2"
+                                />
+                                <input
+                                  type="checkbox"
+                                  id={`todo-${todo.id}`}
+                                  checked={todo.completed}
+                                  on:change={() => toggleTodo(list.id, todo.id)}
+                                  class="form-checkbox h-4 w-4 text-blue-600 transition duration-150 ease-in-out mr-2"
+                                />
+                                <label
+                                  for={`todo-${todo.id}`}
+                                  class="flex-grow text-sm {todo.completed
+                                    ? 'line-through text-gray-500'
+                                    : 'text-gray-800'} cursor-pointer"
+                                >
+                                  {todo.text}
+                                  {#if todo.dueDate}
+                                    <span
+                                      class="ml-2 text-sm {getDateColor(
+                                        todo.dueDate
+                                      )}"
+                                    >
+                                      | {formatDate(todo.dueDate)}
+                                    </span>
+                                  {/if}
+                                </label>
+                                <button
+                                  type="button"
+                                  class="{getDateColor(
+                                    todo.dueDate
+                                  )} hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  on:click={() =>
+                                    toggleDateInput(list.id, todo.id)}
+                                  aria-label={todo.showDateInput
+                                    ? "Hide date input"
+                                    : "Show date input"}
+                                >
+                                  <CalendarDays size={16} />
+                                </button>
+                              </div>
+                              {#if todo.showDateInput}
+                                <div
+                                  class="mt-2 ml-8 flex items-center space-x-2"
+                                >
+                                  <input
+                                    type="date"
+                                    value={todo.dueDate || ""}
+                                    on:change={(e) => handleDateChange(e, todo)}
+                                    class="p-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                              {/if}
+                            </div>
+                          {/each}
+                        </section>
+                      </div>
+                      <div class="mt-4">
+                        <input
+                          class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="New todo item"
+                          bind:value={newTodoText}
+                          on:keydown={(e) =>
+                            handleNewTodoKeydownEvent(e, list.id)}
+                        />
+                        <button
+                          type="button"
+                          class="w-full mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
+                          on:click={() => addTodo(list.id)}
+                        >
+                          Add Todo
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              {/if}
+                {/if}
+              </div>
             </div>
           {/each}
         </section>
