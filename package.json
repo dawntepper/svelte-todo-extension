@@ -16,6 +16,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "lucide-svelte": "^0.453.0",
     "svelte-dnd-action": "^0.9.52"
   },
   "devDependencies": {

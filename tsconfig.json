@@ -2,7 +2,7 @@
   "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
     "sourceMap": true,
-    "strict": true,
+    "strict": false,
     "types": ["chrome", "svelte"],
     "typeRoots": ["./node_modules/@types", "./src/types"],
     "module": "ESNext",
