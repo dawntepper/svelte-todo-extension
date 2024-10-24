@@ -26,6 +26,7 @@
     dueDate?: string;
     showDateInput: boolean;
     alertEnabled: boolean;
+    notificationId?: number;
   }
 
   interface TodoList {
@@ -46,17 +47,16 @@
   let showBulkInput = false;
   let editingListId: string | null = null;
   let editingListLabel = "";
-  let darkMode = false;
+  let darkMode = true;
   let use24HourFormat = false;
   let showAbout = false;
+  let notificationPermission: NotificationPermission = "default";
 
   onMount(() => {
     loadData();
     window.addEventListener("beforeunload", saveData);
-    const prefersDarkMode = window.matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches;
-    darkMode = localStorage.getItem("darkMode") === "true" || prefersDarkMode;
+    const storedDarkMode = localStorage.getItem("darkMode");
+    darkMode = storedDarkMode === null ? true : storedDarkMode === "true";
     use24HourFormat = localStorage.getItem("use24HourFormat") === "true";
     applyTheme();
     setupNotifications();
@@ -160,18 +160,17 @@
   }
 
   function toggleTodo(listId: string, todoId: string): void {
-    lists = lists.map((list) =>
-      list.id === listId
-        ? {
-            ...list,
-            todos: list.todos.map((todo) =>
-              todo.id === todoId
-                ? { ...todo, completed: !todo.completed }
-                : todo
-            ),
-          }
-        : list
-    );
+    lists = lists.map((list) => {
+      if (list.id === listId) {
+        const updatedTodos = list.todos.map((todo) =>
+          todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
+        );
+        const completedTodos = updatedTodos.filter((todo) => todo.completed);
+        const incompleteTodos = updatedTodos.filter((todo) => !todo.completed);
+        return { ...list, todos: [...incompleteTodos, ...completedTodos] };
+      }
+      return list;
+    });
     saveData();
   }
 
@@ -298,10 +297,14 @@
     saveData();
     if (todo.alertEnabled && todo.dueDate) {
       setupNotification(todo, listId);
+    } else {
+      removeNotification(todo.id);
     }
+    lists = [...lists]; // Trigger a re-render
   }
 
-  function getDateColor(date: string | undefined): string {
+  function getDateColor(date: string | undefined, completed: boolean): string {
+    if (completed) return "text-gray-400 dark:text-gray-600";
     if (!date) return "text-gray-500 dark:text-gray-400";
     const today = new Date();
     const dueDate = new Date(date);
@@ -309,8 +312,7 @@
     const diffHours = diffTime / (1000 * 60 * 60);
 
     if (diffHours < 0) return "text-red-500 dark:text-red-400";
-    if (diffHours <= 2) return "text-yellow-500 dark:text-yellow-400";
-    if (diffHours <= 24) return "text-orange-500 dark:text-orange-400";
+    if (diffHours <= 24) return "text-yellow-500 dark:text-yellow-400";
     return "text-green-500 dark:text-green-400";
   }
 
@@ -357,9 +359,9 @@
     }
   }
 
-  function setupNotifications() {
+  async function setupNotifications() {
     if ("Notification" in window) {
-      Notification.requestPermission();
+      notificationPermission = await Notification.requestPermission();
     }
     lists.forEach((list) => {
       list.todos.forEach((todo) => {
@@ -377,27 +379,51 @@
       const timeUntilDue = dueTime - currentTime;
 
       if (timeUntilDue > 0) {
-        setTimeout(() => {
+        const notificationId = setTimeout(() => {
           showNotification(todo, listId);
         }, timeUntilDue);
+
+        // Store the notification ID for potential cancellation
+        todo.notificationId = notificationId;
       }
     }
   }
 
+  function removeNotification(todoId: string) {
+    lists = lists.map((list) => ({
+      ...list,
+      todos: list.todos.map((todo) => {
+        if (todo.id === todoId && todo.notificationId) {
+          clearTimeout(todo.notificationId);
+          return { ...todo, notificationId: undefined };
+        }
+        return todo;
+      }),
+    }));
+  }
+
   function showNotification(todo: Todo, listId: string) {
-    if ("Notification" in window && Notification.permission === "granted") {
+    if (notificationPermission === "granted") {
       new Notification("Todo Due", {
         body: `Your todo "${todo.text}" is due now!`,
       });
     }
     // You can also use chrome.notifications API for more advanced notifications
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl: "icon.png",
-      title: "Todo Due",
-      message: `Your todo "${todo.text}" is due now!`,
-      priority: 2,
-    });
+    if (typeof chrome !== "undefined" && chrome.notifications) {
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icon.png",
+        title: "Todo Due",
+        message: `Your todo "${todo.text}" is due now!`,
+        priority: 2,
+      });
+    }
+  }
+
+  function getLocalISOString(date: Date): string {
+    const offset = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - offset * 60 * 1000);
+    return localDate.toISOString().slice(0, 16);
   }
 
   const handleTodoConsider = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
@@ -423,7 +449,7 @@
   <header class="bg-white dark:bg-gray-800 shadow-md p-4">
     <div class="max-w-4xl mx-auto flex justify-between items-center">
       <h1 class="text-xl font-bold text-blue-600 dark:text-white">
-        Just A Todo List
+        Enhanced Todo List
       </h1>
       <div class="flex items-center space-x-4">
         <button
@@ -435,7 +461,7 @@
           <Info size={20} />
         </button>
         <button
-          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           on:click={toggleTimeFormat}
           aria-label={use24HourFormat
             ? "Switch to 12-hour format"
@@ -445,7 +471,6 @@
             : "Switch to 24-hour format"}
         >
           <Clock size={20} />
-          <span class="ml-1 text-xs">{use24HourFormat ? "24h" : "12h"}</span>
         </button>
         <button
           class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -643,8 +668,9 @@
                                 <div class="flex items-center space-x-2">
                                   <button
                                     type="button"
-                                    class="{getDateColor(
-                                      todo.dueDate
+                                    class="flex items-center space-x-1 {getDateColor(
+                                      todo.dueDate,
+                                      todo.completed
                                     )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     on:click={() =>
                                       toggleDateInput(list.id, todo.id)}
@@ -655,8 +681,11 @@
                                       ? "Edit due date and time"
                                       : "Set due date and time"}
                                   >
-                                    {#if todo.dueDate}
+                                    {#if todo.dueDate && !todo.completed}
                                       <Calendar size={16} />
+                                      <span class="text-sm whitespace-nowrap">
+                                        {formatDate(todo.dueDate)}
+                                      </span>
                                     {:else}
                                       <Clock size={16} />
                                     {/if}
@@ -686,10 +715,10 @@
                                     <input
                                       type="datetime-local"
                                       value={todo.dueDate
-                                        ? new Date(todo.dueDate)
-                                            .toISOString()
-                                            .slice(0, 16)
-                                        : new Date().toISOString().slice(0, 16)}
+                                        ? getLocalISOString(
+                                            new Date(todo.dueDate)
+                                          )
+                                        : getLocalISOString(new Date())}
                                       on:change={(e) =>
                                         handleDateChange(e, todo, list.id)}
                                       class="w-full p-1 pr-8 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
@@ -704,15 +733,6 @@
                                       <X size={14} />
                                     </button>
                                   </div>
-                                  {#if todo.dueDate}
-                                    <span
-                                      class="text-sm {getDateColor(
-                                        todo.dueDate
-                                      )}"
-                                    >
-                                      {formatDate(todo.dueDate)}
-                                    </span>
-                                  {/if}
                                 </div>
                               {/if}
                             </div>
@@ -761,21 +781,23 @@
         <p class="mb-4">
           If you find this app useful, consider supporting its development:
         </p>
-        <a
-          href="https://ko-fi.com/yourusername"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
-        >
-          <Coffee size={20} class="mr-2" />
-          Buy me a coffee
-        </a>
-        <button
-          class="mt-4 px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
-          on:click={() => (showAbout = false)}
-        >
-          Close
-        </button>
+        <div class="flex justify-between items-center">
+          <a
+            href="https://ko-fi.com/yourusername"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
+          >
+            <Coffee size={20} class="mr-2" />
+            Buy me a coffee
+          </a>
+          <button
+            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
+            on:click={() => (showAbout = false)}
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   {/if}
