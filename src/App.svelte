@@ -3,6 +3,8 @@
   import { dndzone, type DndEvent } from "svelte-dnd-action";
   import { flip } from "svelte/animate";
   import { fade, slide } from "svelte/transition";
+  import confetti from "canvas-confetti";
+  import QRCode from "qrcode";
   import {
     Trash2,
     ChevronRight,
@@ -16,6 +18,12 @@
     Bell,
     Coffee,
     Calendar,
+    CheckSquare,
+    Search,
+    Filter,
+    Share2,
+    AlertTriangle,
+    Menu,
   } from "lucide-svelte";
 
   interface Todo {
@@ -26,6 +34,7 @@
     showDateInput: boolean;
     alertEnabled: boolean;
     notificationId?: number;
+    readOnly?: boolean;
   }
 
   interface TodoList {
@@ -33,6 +42,11 @@
     label: string;
     todos: Todo[];
     expanded: boolean;
+  }
+
+  interface ShareOptions {
+    expirationTime: number | null;
+    isEditable: boolean;
   }
 
   let lists: TodoList[] = [];
@@ -50,10 +64,52 @@
   let use24HourFormat = false;
   let showAbout = false;
   let notificationPermission: NotificationPermission = "default";
-  let showCoffeeTooltip = false;
+  let showSearch = false;
+  let showFilters = false;
+  let sortBy: "default" | "dueDate" | "alphabetical" = "default";
+  let showShareModal = false;
+  let shareUrl = "";
+  let qrCodeDataUrl = "";
+  let shareOptions: ShareOptions = {
+    expirationTime: null,
+    isEditable: false,
+  };
+  let showShareFeedback = false;
+  let shareFeedback = "";
+  let showLeftNav = false;
 
   onMount(() => {
-    loadData();
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedData = urlParams.get("data");
+    const sharedExpiration = urlParams.get("expiration");
+    const sharedEditable = urlParams.get("editable");
+
+    if (sharedData) {
+      try {
+        const currentTime = new Date().getTime();
+        if (sharedExpiration && parseInt(sharedExpiration) < currentTime) {
+          alert("This shared list has expired.");
+        } else {
+          const decodedData = JSON.parse(decodeURIComponent(atob(sharedData)));
+          lists = decodedData;
+          if (sharedEditable === "true") {
+            // Allow editing
+          } else {
+            // Make the list read-only
+            lists = lists.map((list) => ({
+              ...list,
+              todos: list.todos.map((todo) => ({ ...todo, readOnly: true })),
+            }));
+          }
+          saveData();
+        }
+      } catch (error) {
+        console.error("Error parsing shared data:", error);
+      }
+    } else {
+      loadData();
+    }
+
     window.addEventListener("beforeunload", saveData);
     const storedDarkMode = localStorage.getItem("darkMode");
     darkMode = storedDarkMode === null ? true : storedDarkMode === "true";
@@ -167,6 +223,18 @@
         );
         const completedTodos = updatedTodos.filter((todo) => todo.completed);
         const incompleteTodos = updatedTodos.filter((todo) => !todo.completed);
+
+        // Check if all todos are completed
+        if (incompleteTodos.length === 0 && completedTodos.length > 0) {
+          setTimeout(() => {
+            confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 },
+            });
+          }, 100);
+        }
+
         return { ...list, todos: [...incompleteTodos, ...completedTodos] };
       }
       return list;
@@ -270,7 +338,7 @@
   }
 
   function handleNewListKeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter") {
+    if (event.key === "Enter" && newListLabel.trim()) {
       createNewList();
     }
   }
@@ -297,8 +365,10 @@
     saveData();
     if (todo.alertEnabled && todo.dueDate) {
       setupNotification(todo, listId);
+      console.log(`Alert enabled for todo: ${todo.text}`);
     } else {
       removeNotification(todo.id);
+      console.log(`Alert disabled for todo: ${todo.text}`);
     }
     lists = [...lists]; // Trigger a re-render
   }
@@ -385,6 +455,13 @@
 
         // Store the notification ID for potential cancellation
         todo.notificationId = notificationId;
+        console.log(
+          `Notification set for todo: ${todo.text}, due in ${
+            timeUntilDue / 1000
+          } seconds`
+        );
+      } else {
+        console.log(`Todo: ${todo.text} is already due`);
       }
     }
   }
@@ -395,6 +472,7 @@
       todos: list.todos.map((todo) => {
         if (todo.id === todoId && todo.notificationId) {
           clearTimeout(todo.notificationId);
+          console.log(`Notification removed for todo: ${todo.text}`);
           return { ...todo, notificationId: undefined };
         }
         return todo;
@@ -418,12 +496,88 @@
         priority: 2,
       });
     }
+    console.log(`Notification shown for todo: ${todo.text}`);
   }
 
   function getLocalISOString(date: Date): string {
     const offset = date.getTimezoneOffset();
     const localDate = new Date(date.getTime() - offset * 60 * 1000);
     return localDate.toISOString().slice(0, 16);
+  }
+
+  function toggleSearch() {
+    showSearch = !showSearch;
+    if (!showSearch) {
+      searchQuery = "";
+    }
+  }
+
+  function toggleFilters() {
+    showFilters = !showFilters;
+  }
+
+  function setSortBy(sort: "default" | "dueDate" | "alphabetical") {
+    sortBy = sort;
+  }
+
+  function generateShareableLink() {
+    const data = JSON.stringify(lists);
+    const encodedData = btoa(encodeURIComponent(data));
+    const expirationParam = shareOptions.expirationTime
+      ? `&expiration=${shareOptions.expirationTime}`
+      : "";
+    const editableParam = `&editable=${shareOptions.isEditable}`;
+    shareUrl = `${window.location.origin}?data=${encodedData}${expirationParam}${editableParam}`;
+
+    QRCode.toDataURL(shareUrl, { width: 300, margin: 2 }, (err, url) => {
+      if (err) {
+        console.error("Error generating QR code:", err);
+      } else {
+        qrCodeDataUrl = url;
+      }
+    });
+
+    showShareModal = true;
+
+    // Track usage
+    trackShareUsage();
+  }
+
+  function trackShareUsage() {
+    // Implement your analytics tracking here
+    console.log("Share feature used");
+  }
+
+  function copyShareableLink() {
+    navigator.clipboard
+      .writeText(shareUrl)
+      .then(() => {
+        alert("Link copied to clipboard!");
+      })
+      .catch((err) => {
+        console.error("Failed to copy link: ", err);
+      });
+  }
+
+  function submitShareFeedback() {
+    // Implement your feedback submission logic here
+    console.log("Share feedback:", shareFeedback);
+    showShareFeedback = false;
+    shareFeedback = "";
+  }
+
+  function toggleLeftNav() {
+    showLeftNav = !showLeftNav;
+  }
+
+  function closeLeftNav() {
+    showLeftNav = false;
+  }
+
+  function handleListKeydown(event: KeyboardEvent, listId: string) {
+    if (event.key === "Enter" || event.key === " ") {
+      toggleListExpansion(listId);
+    }
   }
 
   const handleTodoConsider = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
@@ -435,11 +589,20 @@
 
   $: filteredLists = lists.map((list) => ({
     ...list,
-    todos: (list.todos || []).filter(
-      (todo) =>
-        todo.text.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        (showCompleted || !todo.completed)
-    ),
+    todos: (list.todos || [])
+      .filter(
+        (todo) =>
+          todo.text.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          (showCompleted || !todo.completed)
+      )
+      .sort((a, b) => {
+        if (sortBy === "dueDate") {
+          return (a.dueDate || "").localeCompare(b.dueDate || "");
+        } else if (sortBy === "alphabetical") {
+          return a.text.localeCompare(b.text);
+        }
+        return 0;
+      }),
   }));
 </script>
 
@@ -448,59 +611,196 @@
 >
   <header class="bg-white dark:bg-gray-800 shadow-md p-4">
     <div class="max-w-4xl mx-auto flex justify-between items-center">
-      <h1 class="text-xl font-bold text-blue-600 dark:text-white">
-        Enhanced Todo List
-      </h1>
+      <div class="flex items-center space-x-2">
+        <button
+          class="sm:hidden p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={toggleLeftNav}
+        >
+          <Menu size={24} />
+        </button>
+        <CheckSquare size={24} class="text-blue-600 dark:text-white" />
+        <h1 class="text-2xl font-bold text-blue-600 dark:text-white">
+          Just A List
+        </h1>
+      </div>
       <div class="flex items-center space-x-4">
-        <div class="relative">
+        <div class="hidden sm:flex items-center space-x-4">
           <button
             class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:mouseenter={() => (showCoffeeTooltip = true)}
-            on:mouseleave={() => (showCoffeeTooltip = false)}
-            on:click={() => (showAbout = true)}
-            aria-label="About"
+            on:click={toggleSearch}
           >
-            <Coffee size={24} class="text-brown-500" />
+            <span class="sr-only">Toggle search</span>
+            <Search size={20} />
           </button>
-          {#if showCoffeeTooltip}
-            <div
-              class="absolute right-0 mt-2 p-2 bg-white dark:bg-gray-800 rounded shadow-lg text-sm"
+          <button
+            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            on:click={toggleFilters}
+          >
+            <span class="sr-only">Toggle filters</span>
+            <Filter size={20} />
+          </button>
+          <button
+            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            on:click={generateShareableLink}
+          >
+            <span class="sr-only">Share list</span>
+            <Share2 size={20} />
+          </button>
+          <button
+            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            on:click={toggleTimeFormat}
+          >
+            <span class="sr-only"
+              >{use24HourFormat
+                ? "Switch to 12-hour format"
+                : "Switch to 24-hour format"}</span
             >
-              Click to support the developer!
-            </div>
-          {/if}
+            <Clock size={20} />
+          </button>
+          <button
+            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            on:click={toggleDarkMode}
+          >
+            <span class="sr-only"
+              >{darkMode ? "Switch to light mode" : "Switch to dark mode"}</span
+            >
+            {#if darkMode}
+              <Sun size={20} class="text-white" />
+            {:else}
+              <Moon size={20} />
+            {/if}
+          </button>
         </div>
         <button
           class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={toggleTimeFormat}
-          aria-label={use24HourFormat
-            ? "Switch to 12-hour format"
-            : "Switch to 24-hour format"}
-          title={use24HourFormat
-            ? "Switch to 12-hour format"
-            : "Switch to 24-hour format"}
+          on:click={() => (showAbout = true)}
         >
-          <Clock size={20} />
-        </button>
-        <button
-          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={toggleDarkMode}
-          aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-          title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {#if darkMode}
-            <Sun size={20} class="text-white" />
-          {:else}
-            <Moon size={20} />
-          {/if}
+          <span class="sr-only">About</span>
+          <Coffee size={24} class="text-brown-500" />
         </button>
       </div>
     </div>
   </header>
 
+  {#if showLeftNav}
+    <div
+      class="fixed inset-0 bg-black bg-opacity-50 z-40"
+      on:click={closeLeftNav}
+    ></div>
+    <nav
+      class="fixed left-0 top-0 bottom-0 w-[280px] bg-white dark:bg-gray-800 shadow-lg z-50 transform transition-transform duration-300 ease-in-out"
+      class:translate-x-0={showLeftNav}
+      class:-translate-x-full={!showLeftNav}
+    >
+      <div class="p-4 space-y-4">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-bold">Menu</h2>
+          <button
+            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            on:click={closeLeftNav}
+          >
+            <X size={24} />
+          </button>
+        </div>
+        <button
+          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => {
+            toggleSearch();
+            closeLeftNav();
+          }}
+        >
+          <Search size={20} />
+          <span>Toggle search</span>
+        </button>
+        <button
+          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => {
+            toggleFilters();
+            closeLeftNav();
+          }}
+        >
+          <Filter size={20} />
+          <span>Toggle filters</span>
+        </button>
+        <button
+          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => {
+            generateShareableLink();
+            closeLeftNav();
+          }}
+        >
+          <Share2 size={20} />
+          <span>Share list</span>
+        </button>
+        <button
+          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => {
+            toggleTimeFormat();
+            closeLeftNav();
+          }}
+        >
+          <Clock size={20} />
+          <span
+            >{use24HourFormat
+              ? "Switch to 12-hour format"
+              : "Switch to 24-hour format"}</span
+          >
+        </button>
+        <button
+          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => {
+            toggleDarkMode();
+            closeLeftNav();
+          }}
+        >
+          {#if darkMode}
+            <Sun size={20} />
+          {:else}
+            <Moon size={20} />
+          {/if}
+          <span
+            >{darkMode ? "Switch to light mode" : "Switch to dark mode"}</span
+          >
+        </button>
+      </div>
+    </nav>
+  {/if}
+
   <div
     class="flex-1 w-full max-w-4xl mx-auto p-4 overflow-hidden flex flex-col"
   >
+    {#if showSearch}
+      <div class="mb-4">
+        <input
+          type="text"
+          bind:value={searchQuery}
+          placeholder="Search todos..."
+          class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+        />
+      </div>
+    {/if}
+
+    {#if showFilters}
+      <div class="mb-4 flex items-center space-x-4">
+        <label class="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            bind:checked={showCompleted}
+            class="form-checkbox h-4 w-4 text-blue-600"
+          />
+          <span>Show completed</span>
+        </label>
+        <select
+          bind:value={sortBy}
+          class="p-2 border rounded bg-white dark:bg-gray-700 dark:text-white"
+        >
+          <option value="default">Default sort</option>
+          <option value="dueDate">Sort by due date</option>
+          <option value="alphabetical">Sort alphabetically</option>
+        </select>
+      </div>
+    {/if}
+
     <div class="space-y-4 sticky top-0 bg-gray-100 dark:bg-gray-900 z-10 pb-4">
       <div class="flex space-x-2">
         <input
@@ -511,8 +811,9 @@
         />
         <button
           type="button"
-          class="px-4 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+          class="px-4 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           on:click={() => (isCreatingNewList = true)}
+          disabled={!newListLabel.trim()}
         >
           Create List
         </button>
@@ -558,7 +859,7 @@
       {/if}
     </div>
 
-    <div class="space-y-2 overflow-y-auto flex-1">
+    <div class="space-y-6 overflow-y-auto flex-1">
       <section
         use:dndzone={{ items: filteredLists, flipDurationMs: 300 }}
         on:consider={handleListDndConsider}
@@ -567,17 +868,15 @@
         {#each filteredLists as list, index (list.id)}
           <div animate:flip={{ duration: 300 }}>
             <div
-              class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2 bg-white dark:bg-gray-800"
+              class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-6 bg-white dark:bg-gray-800 {list.expanded
+                ? 'border-blue-500 dark:border-blue-400'
+                : ''}"
             >
               <button
                 type="button"
-                class="w-full flex items-center justify-between p-3 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-blue-500 {index %
-                  2 ===
-                0
-                  ? 'bg-white dark:bg-gray-800'
-                  : 'bg-gray-200 dark:bg-gray-700'}"
+                class="w-full flex items-center justify-between p-3 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-blue-500"
                 on:click={() => toggleListExpansion(list.id)}
-                title="Click to expand/collapse list"
+                on:keydown={(e) => handleListKeydown(e, list.id)}
               >
                 <div class="flex items-center space-x-2 flex-grow">
                   <GripVertical
@@ -611,27 +910,27 @@
                 <div class="flex items-center space-x-2">
                   <button
                     type="button"
-                    class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none"
+                    class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     on:click|stopPropagation={() =>
                       startEditingListName(list.id)}
-                    title="Edit list name"
                   >
+                    <span class="sr-only">Edit list name</span>
                     <Edit size={16} />
                   </button>
                   <button
                     type="button"
-                    class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 focus:outline-none"
+                    class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     on:click|stopPropagation={() => copyList(list.id)}
-                    title="Copy list"
                   >
+                    <span class="sr-only">Copy list</span>
                     <Copy size={16} />
                   </button>
                   <button
                     type="button"
-                    class="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 focus:outline-none"
+                    class="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     on:click|stopPropagation={() => deleteList(list.id)}
-                    title="Delete list"
                   >
+                    <span class="sr-only">Delete list</span>
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -639,7 +938,7 @@
               {#if list.expanded}
                 <div transition:slide|local={{ duration: 300 }}>
                   <div class="p-3 border-t dark:border-gray-700">
-                    <div class="space-y-2">
+                    <div class="space-y-4">
                       <section
                         use:dndzone={{
                           items: list.todos || [],
@@ -655,7 +954,7 @@
                         {#each list.todos || [] as todo (todo.id)}
                           <div animate:flip={{ duration: 300 }}>
                             <div
-                              class="flex items-center p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"
+                              class="flex items-center p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200 mb-2"
                             >
                               <GripVertical
                                 size={16}
@@ -685,13 +984,12 @@
                                   )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                   on:click={() =>
                                     toggleDateInput(list.id, todo.id)}
-                                  aria-label={todo.dueDate
-                                    ? "Edit due date and time"
-                                    : "Set due date and time"}
-                                  title={todo.dueDate
-                                    ? "Edit due date and time"
-                                    : "Set due date and time"}
                                 >
+                                  <span class="sr-only"
+                                    >{todo.dueDate
+                                      ? "Edit due date and time"
+                                      : "Set due date and time"}</span
+                                  >
                                   {#if todo.dueDate && !todo.completed}
                                     <span class="text-sm whitespace-nowrap">
                                       {formatDate(todo.dueDate)}
@@ -703,17 +1001,16 @@
                                 </button>
                                 <button
                                   type="button"
-                                  class="{todo.alertEnabled
+                                  class="relative {todo.alertEnabled
                                     ? 'text-blue-500'
                                     : 'text-gray-400'} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                   on:click={() => toggleAlert(todo, list.id)}
-                                  aria-label={todo.alertEnabled
-                                    ? "Disable alert"
-                                    : "Enable alert"}
-                                  title={todo.alertEnabled
-                                    ? "Disable alert"
-                                    : "Enable alert"}
                                 >
+                                  <span class="sr-only"
+                                    >{todo.alertEnabled
+                                      ? "Disable alert"
+                                      : "Enable alert"}</span
+                                  >
                                   <Bell size={16} />
                                 </button>
                               </div>
@@ -734,15 +1031,30 @@
                                       handleDateChange(e, todo, list.id)}
                                     class="w-full p-1 pr-8 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
                                   />
-                                  <button
-                                    type="button"
-                                    class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"
-                                    on:click={() =>
-                                      toggleDateInput(list.id, todo.id)}
-                                    aria-label="Close date input"
+                                  <div
+                                    class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-2"
                                   >
-                                    <X size={14} />
-                                  </button>
+                                    <button
+                                      type="button"
+                                      class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      on:click={() => {
+                                        todo.dueDate = undefined;
+                                        saveData();
+                                      }}
+                                    >
+                                      Clear
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      on:click={() => {
+                                        todo.dueDate = new Date().toISOString();
+                                        saveData();
+                                      }}
+                                    >
+                                      Today
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             {/if}
@@ -776,14 +1088,132 @@
     </div>
   </div>
 
+  {#if showShareModal}
+    <div
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+    >
+      <div
+        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full"
+      >
+        <h2 class="text-2xl font-bold mb-4">Share Your List</h2>
+        <div
+          class="mb-4 flex items-center text-yellow-600 dark:text-yellow-400"
+        >
+          <AlertTriangle size={20} class="mr-2" />
+          <p class="text-sm">
+            Anyone with this link can view your list. Be careful when sharing
+            sensitive information.
+          </p>
+        </div>
+        <div class="mb-4">
+          <label for="expirationTime" class="block text-sm font-medium mb-1"
+            >Expiration Time</label
+          >
+          <select
+            id="expirationTime"
+            bind:value={shareOptions.expirationTime}
+            class="w-full p-2 border rounded bg-white dark:bg-gray-600"
+          >
+            <option value={null}>No expiration</option>
+            <option value={Date.now() + 3600000}>1 hour</option>
+            <option value={Date.now() + 86400000}>24 hours</option>
+            <option value={Date.now() + 604800000}>1 week</option>
+          </select>
+        </div>
+        <div class="mb-4">
+          <label class="flex items-center">
+            <input
+              type="checkbox"
+              bind:checked={shareOptions.isEditable}
+              class="mr-2"
+            />
+            <span class="text-sm">Allow editing</span>
+          </label>
+        </div>
+        <div class="mb-4">
+          <label for="shareLink" class="block text-sm font-medium mb-1"
+            >Shareable Link</label
+          >
+          <div class="flex">
+            <input
+              id="shareLink"
+              type="text"
+              readonly
+              value={shareUrl}
+              class="flex-grow p-2 border rounded-l bg-gray-100 dark:bg-gray-600"
+            />
+            <button
+              class="px-4 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600 transition-colors duration-200"
+              on:click={copyShareableLink}
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+        <div class="flex justify-center mb-4">
+          <img
+            src={qrCodeDataUrl}
+            alt="QR Code for sharing"
+            class="w-48 h-48"
+          />
+        </div>
+        <div class="flex justify-between items-center">
+          <button
+            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
+            on:click={() => (showShareModal = false)}
+          >
+            Close
+          </button>
+        </div>
+        <button
+          class="mt-4 text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+          on:click={() => (showShareFeedback = true)}
+        >
+          Provide feedback on sharing feature
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showShareFeedback}
+    <div
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+    >
+      <div
+        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full"
+      >
+        <h2 class="text-2xl font-bold mb-4">Share Feature Feedback</h2>
+        <textarea
+          bind:value={shareFeedback}
+          placeholder="Please provide your feedback on the sharing feature..."
+          class="w-full p-2 mb-4 border rounded bg-white dark:bg-gray-600 h-32"
+        ></textarea>
+        <div class="flex justify-between items-center">
+          <button
+            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
+            on:click={() => (showShareFeedback = false)}
+          >
+            Cancel
+          </button>
+          <button
+            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
+            on:click={submitShareFeedback}
+          >
+            Submit Feedback
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if showAbout}
     <div
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
     >
       <div
-        class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full"
       >
-        <h2 class="text-2xl font-bold mb-4">About Enhanced Todo List</h2>
+        <h2 class="text-2xl font-bold mb-4">About Just A List</h2>
         <p class="mb-4">
           I hope you enjoy this simple yet powerful todo list! It's designed to
           help you stay organized and productive.
@@ -792,6 +1222,12 @@
           If you find this app useful, consider supporting its development:
         </p>
         <div class="flex justify-between items-center">
+          <button
+            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
+            on:click={() => (showAbout = false)}
+          >
+            Close
+          </button>
           <a
             href="https://ko-fi.com/yourusername"
             target="_blank"
@@ -801,12 +1237,6 @@
             <Coffee size={20} class="mr-2" />
             Buy me a coffee
           </a>
-          <button
-            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
-            on:click={() => (showAbout = false)}
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>
@@ -823,5 +1253,15 @@
 
   :global(html.dark) {
     color-scheme: dark;
+  }
+
+  /* Add these new styles for the responsive layout */
+  @media (max-width: 639px) {
+    .sm\:hidden {
+      display: block;
+    }
+    .sm\:flex {
+      display: none;
+    }
   }
 </style>
