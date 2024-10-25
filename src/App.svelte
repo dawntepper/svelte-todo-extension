@@ -18,12 +18,12 @@
     Bell,
     Coffee,
     Calendar,
-    CheckSquare,
     Search,
     Filter,
     Share2,
     AlertTriangle,
     Menu,
+    MessageSquare,
   } from "lucide-svelte";
 
   interface Todo {
@@ -69,6 +69,7 @@
   let sortBy: "default" | "dueDate" | "alphabetical" = "default";
   let showShareModal = false;
   let shareUrl = "";
+  let shortShareUrl = "";
   let qrCodeDataUrl = "";
   let shareOptions: ShareOptions = {
     expirationTime: null,
@@ -77,6 +78,7 @@
   let showShareFeedback = false;
   let shareFeedback = "";
   let showLeftNav = false;
+  let showFeedbackModal = false;
 
   onMount(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -120,6 +122,19 @@
       window.removeEventListener("beforeunload", saveData);
     };
   });
+
+  function clearDueDate(todo: Todo): void {
+    todo.dueDate = undefined;
+    saveData();
+  }
+
+  function setDueDateToday(todo: Todo, listId: string): void {
+    todo.dueDate = new Date().toISOString();
+    saveData();
+    if (todo.alertEnabled) {
+      setupNotification(todo, listId);
+    }
+  }
 
   function applyTheme() {
     if (darkMode) {
@@ -456,12 +471,10 @@
         // Store the notification ID for potential cancellation
         todo.notificationId = notificationId;
         console.log(
-          `Notification set for todo: ${todo.text}, due in ${
-            timeUntilDue / 1000
-          } seconds`
+          `Notification set for todo: ${todo.text}, due in ${timeUntilDue / 1000} seconds`
         );
       } else {
-        console.log(`Todo: ${todo.text} is already due`);
+        console.log(`Todo:  ${todo.text} is already due`);
       }
     }
   }
@@ -512,6 +525,11 @@
     }
   }
 
+  function closeSearch() {
+    showSearch = false;
+    searchQuery = "";
+  }
+
   function toggleFilters() {
     showFilters = !showFilters;
   }
@@ -520,27 +538,43 @@
     sortBy = sort;
   }
 
-  function generateShareableLink() {
+  async function generateShareableLink() {
     const data = JSON.stringify(lists);
     const encodedData = btoa(encodeURIComponent(data));
     const expirationParam = shareOptions.expirationTime
       ? `&expiration=${shareOptions.expirationTime}`
       : "";
     const editableParam = `&editable=${shareOptions.isEditable}`;
-    shareUrl = `${window.location.origin}?data=${encodedData}${expirationParam}${editableParam}`;
+    shareUrl = `${window.location.origin}${window.location.pathname}?data=${encodedData}${expirationParam}${editableParam}`;
 
-    QRCode.toDataURL(shareUrl, { width: 300, margin: 2 }, (err, url) => {
-      if (err) {
-        console.error("Error generating QR code:", err);
-      } else {
-        qrCodeDataUrl = url;
-      }
-    });
+    // Shorten the URL
+    shortShareUrl = await shortenUrl(shareUrl);
+
+    try {
+      qrCodeDataUrl = await QRCode.toDataURL(shortShareUrl, {
+        width: 300,
+        margin: 2,
+      });
+    } catch (err) {
+      console.error("Error generating QR code:", err);
+      qrCodeDataUrl = "";
+    }
 
     showShareModal = true;
 
     // Track usage
     trackShareUsage();
+  }
+
+  async function shortenUrl(longUrl: string): Promise<string> {
+    // This is a placeholder function. You'll need to implement an actual URL shortening service.
+    // For demonstration, we're just returning a fake shortened URL.
+    // In a real implementation, you would make an API call to a URL shortening service.
+    return `https://short.url/${Math.random().toString(36).substr(2, 8)}`;
+  }
+
+  function handleEditInputClick(event: MouseEvent) {
+    event.stopPropagation();
   }
 
   function trackShareUsage() {
@@ -550,9 +584,9 @@
 
   function copyShareableLink() {
     navigator.clipboard
-      .writeText(shareUrl)
+      .writeText(shortShareUrl)
       .then(() => {
-        alert("Link copied to clipboard!");
+        alert("Shortened link copied to clipboard!");
       })
       .catch((err) => {
         console.error("Failed to copy link: ", err);
@@ -574,10 +608,21 @@
     showLeftNav = false;
   }
 
+  function toggleFeedbackModal() {
+    showFeedbackModal = !showFeedbackModal;
+    if (showLeftNav) closeLeftNav();
+  }
+
   function handleListKeydown(event: KeyboardEvent, listId: string) {
     if (event.key === "Enter" || event.key === " ") {
       toggleListExpansion(listId);
     }
+  }
+
+  function getListHeaderBackgroundColor(index: number): string {
+    return index % 2 === 0
+      ? "bg-white dark:bg-gray-800"
+      : "bg-gray-50 dark:bg-gray-750";
   }
 
   const handleTodoConsider = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
@@ -611,73 +656,59 @@
 >
   <header class="bg-white dark:bg-gray-800 shadow-md p-4">
     <div class="max-w-4xl mx-auto flex justify-between items-center">
-      <div class="flex items-center space-x-2">
+      <div class="flex items-center space-x-2 flex-shrink-0">
         <button
-          class="sm:hidden p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           on:click={toggleLeftNav}
         >
           <Menu size={24} />
         </button>
-        <CheckSquare size={24} class="text-blue-600 dark:text-white" />
-        <h1 class="text-2xl font-bold text-blue-600 dark:text-white">
+        <a
+          href="https://ko-fi.com/yourusername"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <Coffee size={24} class="text-blue-600 dark:text-white" />
+        </a>
+        <h1
+          class="text-2xl font-bold text-blue-600 dark:text-white whitespace-nowrap"
+        >
           Just A List
         </h1>
       </div>
-      <div class="flex items-center space-x-4">
-        <div class="hidden sm:flex items-center space-x-4">
+      <div class="flex items-center">
+        <div class="mr-6">
           <button
             class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             on:click={toggleSearch}
+            title="Toggle search"
           >
-            <span class="sr-only">Toggle search</span>
             <Search size={20} />
           </button>
+        </div>
+        <div class="flex items-center space-x-1">
           <button
             class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             on:click={toggleFilters}
+            title="Toggle filters"
           >
-            <span class="sr-only">Toggle filters</span>
             <Filter size={20} />
           </button>
           <button
             class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             on:click={generateShareableLink}
+            title="Share list"
           >
-            <span class="sr-only">Share list</span>
             <Share2 size={20} />
           </button>
           <button
             class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:click={toggleTimeFormat}
+            on:click={() => (showAbout = true)}
+            title="About"
           >
-            <span class="sr-only"
-              >{use24HourFormat
-                ? "Switch to 12-hour format"
-                : "Switch to 24-hour format"}</span
-            >
-            <Clock size={20} />
-          </button>
-          <button
-            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:click={toggleDarkMode}
-          >
-            <span class="sr-only"
-              >{darkMode ? "Switch to light mode" : "Switch to dark mode"}</span
-            >
-            {#if darkMode}
-              <Sun size={20} class="text-white" />
-            {:else}
-              <Moon size={20} />
-            {/if}
           </button>
         </div>
-        <button
-          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => (showAbout = true)}
-        >
-          <span class="sr-only">About</span>
-          <Coffee size={24} class="text-brown-500" />
-        </button>
       </div>
     </div>
   </header>
@@ -688,7 +719,7 @@
       on:click={closeLeftNav}
     ></div>
     <nav
-      class="fixed left-0 top-0 bottom-0 w-[280px] bg-white dark:bg-gray-800 shadow-lg z-50 transform transition-transform duration-300 ease-in-out"
+      class="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-800 shadow-lg z-50 transform transition-transform duration-300 ease-in-out"
       class:translate-x-0={showLeftNav}
       class:-translate-x-full={!showLeftNav}
     >
@@ -702,36 +733,6 @@
             <X size={24} />
           </button>
         </div>
-        <button
-          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => {
-            toggleSearch();
-            closeLeftNav();
-          }}
-        >
-          <Search size={20} />
-          <span>Toggle search</span>
-        </button>
-        <button
-          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => {
-            toggleFilters();
-            closeLeftNav();
-          }}
-        >
-          <Filter size={20} />
-          <span>Toggle filters</span>
-        </button>
-        <button
-          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => {
-            generateShareableLink();
-            closeLeftNav();
-          }}
-        >
-          <Share2 size={20} />
-          <span>Share list</span>
-        </button>
         <button
           class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           on:click={() => {
@@ -755,12 +756,18 @@
         >
           {#if darkMode}
             <Sun size={20} />
+            <span>Switch to light mode</span>
           {:else}
             <Moon size={20} />
+            <span>Switch to dark mode</span>
           {/if}
-          <span
-            >{darkMode ? "Switch to light mode" : "Switch to dark mode"}</span
-          >
+        </button>
+        <button
+          class="w-full flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={toggleFeedbackModal}
+        >
+          <MessageSquare size={20} />
+          <span>Provide Feedback</span>
         </button>
       </div>
     </nav>
@@ -770,13 +777,19 @@
     class="flex-1 w-full max-w-4xl mx-auto p-4 overflow-hidden flex flex-col"
   >
     {#if showSearch}
-      <div class="mb-4">
+      <div class="mb-4 relative">
         <input
           type="text"
           bind:value={searchQuery}
           placeholder="Search todos..."
-          class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+          class="w-full p-2 pr-10 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
         />
+        <button
+          class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          on:click={closeSearch}
+        >
+          <X size={20} />
+        </button>
       </div>
     {/if}
 
@@ -859,7 +872,7 @@
       {/if}
     </div>
 
-    <div class="space-y-6 overflow-y-auto flex-1">
+    <div class="space-y-2 overflow-y-auto flex-1">
       <section
         use:dndzone={{ items: filteredLists, flipDurationMs: 300 }}
         on:consider={handleListDndConsider}
@@ -868,7 +881,7 @@
         {#each filteredLists as list, index (list.id)}
           <div animate:flip={{ duration: 300 }}>
             <div
-              class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-6 bg-white dark:bg-gray-800 {list.expanded
+              class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2 bg-white dark:bg-gray-800 {list.expanded
                 ? 'border-blue-500 dark:border-blue-400'
                 : ''}"
             >
@@ -894,8 +907,14 @@
                       <input
                         bind:value={editingListLabel}
                         on:blur={saveEditingListName}
-                        on:keydown={(e) =>
-                          e.key === "Enter" && saveEditingListName()}
+                        on:click={handleEditInputClick}
+                        on:keydown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveEditingListName();
+                          }
+                          e.stopPropagation();
+                        }}
                         class="text-base font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 bg-yellow-100 dark:bg-yellow-900"
                       />
                     {:else}
@@ -938,7 +957,7 @@
               {#if list.expanded}
                 <div transition:slide|local={{ duration: 300 }}>
                   <div class="p-3 border-t dark:border-gray-700">
-                    <div class="space-y-4">
+                    <div class="space-y-2">
                       <section
                         use:dndzone={{
                           items: list.todos || [],
@@ -1016,10 +1035,8 @@
                               </div>
                             </div>
                             {#if todo.showDateInput}
-                              <div
-                                class="mt-2 ml-8 flex items-center space-x-2"
-                              >
-                                <div class="relative flex-grow">
+                              <div class="mt-2 ml-8 space-y-2">
+                                <div class="flex items-center space-x-2">
                                   <input
                                     type="datetime-local"
                                     value={todo.dueDate
@@ -1029,32 +1046,24 @@
                                       : getLocalISOString(new Date())}
                                     on:change={(e) =>
                                       handleDateChange(e, todo, list.id)}
-                                    class="w-full p-1 pr-8 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                                    class="w-full p-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
                                   />
-                                  <div
-                                    class="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-2"
+                                </div>
+                                <div class="flex justify-between">
+                                  <button
+                                    type="button"
+                                    class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    on:click={() => clearDueDate(todo)}
                                   >
-                                    <button
-                                      type="button"
-                                      class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                      on:click={() => {
-                                        todo.dueDate = undefined;
-                                        saveData();
-                                      }}
-                                    >
-                                      Clear
-                                    </button>
-                                    <button
-                                      type="button"
-                                      class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                      on:click={() => {
-                                        todo.dueDate = new Date().toISOString();
-                                        saveData();
-                                      }}
-                                    >
-                                      Today
-                                    </button>
-                                  </div>
+                                    <!-- Clear -->
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    on:click={() =>
+                                      setDueDateToday(todo, list.id)}
+                                  >
+                                  </button>
                                 </div>
                               </div>
                             {/if}
@@ -1093,8 +1102,14 @@
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
     >
       <div
-        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full"
+        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full relative"
       >
+        <button
+          class="absolute top-2 right-2 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => (showShareModal = false)}
+        >
+          <X size={20} />
+        </button>
         <h2 class="text-2xl font-bold mb-4">Share Your List</h2>
         <div
           class="mb-4 flex items-center text-yellow-600 dark:text-yellow-400"
@@ -1139,7 +1154,7 @@
               id="shareLink"
               type="text"
               readonly
-              value={shareUrl}
+              value={shortShareUrl}
               class="flex-grow p-2 border rounded-l bg-gray-100 dark:bg-gray-600"
             />
             <button
@@ -1151,13 +1166,17 @@
           </div>
         </div>
         <div class="flex justify-center mb-4">
-          <img
-            src={qrCodeDataUrl}
-            alt="QR Code for sharing"
-            class="w-48 h-48"
-          />
+          {#if qrCodeDataUrl}
+            <img
+              src={qrCodeDataUrl}
+              alt="QR Code for sharing"
+              class="w-48 h-48"
+            />
+          {:else}
+            <p>Generating QR code...</p>
+          {/if}
         </div>
-        <div class="flex justify-between items-center">
+        <div class="flex justify-end">
           <button
             class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
             on:click={() => (showShareModal = false)}
@@ -1165,36 +1184,30 @@
             Close
           </button>
         </div>
-        <button
-          class="mt-4 text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-          on:click={() => (showShareFeedback = true)}
-        >
-          Provide feedback on sharing feature
-        </button>
       </div>
     </div>
   {/if}
 
-  {#if showShareFeedback}
+  {#if showFeedbackModal}
     <div
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
     >
       <div
-        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full"
+        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full relative"
       >
-        <h2 class="text-2xl font-bold mb-4">Share Feature Feedback</h2>
+        <button
+          class="absolute top-2 right-2 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => (showFeedbackModal = false)}
+        >
+          <X size={20} />
+        </button>
+        <h2 class="text-2xl font-bold mb-4">Provide Feedback</h2>
         <textarea
           bind:value={shareFeedback}
-          placeholder="Please provide your feedback on the sharing feature..."
+          placeholder="Please provide your feedback on the app..."
           class="w-full p-2 mb-4 border rounded bg-white dark:bg-gray-600 h-32"
         ></textarea>
-        <div class="flex justify-between items-center">
-          <button
-            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
-            on:click={() => (showShareFeedback = false)}
-          >
-            Cancel
-          </button>
+        <div class="flex justify-end">
           <button
             class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
             on:click={submitShareFeedback}
@@ -1263,5 +1276,10 @@
     .sm\:flex {
       display: none;
     }
+  }
+
+  /* Add this new style for the darker odd list background in dark mode */
+  :global(.dark) .bg-gray-750 {
+    background-color: #2d3748;
   }
 </style>
