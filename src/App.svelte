@@ -33,6 +33,7 @@
     showDateInput: boolean;
     readOnly?: boolean;
     note?: string;
+    showNote?: boolean;
     createdAt: number;
   }
 
@@ -83,7 +84,6 @@
   let showLeftNav = false;
   let showFeedbackModal = false;
   let hoveredElement: string | null = null;
-  let editingTodoNote: { listId: string; todoId: string } | null = null;
 
   onMount(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -160,6 +160,7 @@
           todos: list.todos.map((todo: Todo) => ({
             ...todo,
             showDateInput: false,
+            showNote: false,
           })),
         }));
         // Open the latest list by default
@@ -309,6 +310,7 @@
         completed: false,
         showDateInput: false,
         createdAt: Date.now(),
+        showNote: false,
       };
 
       lists = lists.map((list) =>
@@ -330,6 +332,7 @@
           completed: false,
           showDateInput: false,
           createdAt: Date.now(),
+          showNote: false,
         }));
 
       lists = lists.map((list) =>
@@ -470,33 +473,35 @@
     }
   }
 
-  function startEditingTodoNote(listId: string, todoId: string): void {
-    editingTodoNote = { listId, todoId };
-    const list = lists.find((l) => l.id === listId);
-    const todo = list?.todos.find((t) => t.id === todoId);
-    if (todo) {
-      editingNote = todo.note || "";
-    }
+  function toggleTodoNote(listId: string, todoId: string): void {
+    lists = lists.map((list) =>
+      list.id === listId
+        ? {
+            ...list,
+            todos: list.todos.map((todo) =>
+              todo.id === todoId ? { ...todo, showNote: !todo.showNote } : todo
+            ),
+          }
+        : list
+    );
   }
 
-  function saveEditingTodoNote(): void {
-    if (editingTodoNote) {
-      lists = lists.map((list) =>
-        list.id === editingTodoNote.listId
-          ? {
-              ...list,
-              todos: list.todos.map((todo) =>
-                todo.id === editingTodoNote.todoId
-                  ? { ...todo, note: editingNote.trim() }
-                  : todo
-              ),
-            }
-          : list
-      );
-      editingTodoNote = null;
-      editingNote = "";
-      saveData();
-    }
+  function updateTodoNote(
+    listId: string,
+    todoId: string,
+    newNote: string
+  ): void {
+    lists = lists.map((list) =>
+      list.id === listId
+        ? {
+            ...list,
+            todos: list.todos.map((todo) =>
+              todo.id === todoId ? { ...todo, note: newNote.trim() } : todo
+            ),
+          }
+        : list
+    );
+    saveData();
   }
 
   function getLocalISOString(date: Date): string {
@@ -1170,7 +1175,7 @@
                                     ? 'text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200'
                                     : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'} focus:outline-none"
                                   on:click|stopPropagation={() =>
-                                    startEditingTodoNote(list.id, todo.id)}
+                                    toggleTodoNote(list.id, todo.id)}
                                   on:mouseenter={() =>
                                     (hoveredElement = `note-todo-${todo.id}`)}
                                   on:mouseleave={() => (hoveredElement = null)}
@@ -1201,6 +1206,22 @@
                                     class="w-full p-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
                                   />
                                 </div>
+                              </div>
+                            {/if}
+                            {#if todo.showNote}
+                              <div class="mt-2 ml-8 space-y-2">
+                                <textarea
+                                  value={todo.note || ""}
+                                  on:input={(e) =>
+                                    updateTodoNote(
+                                      list.id,
+                                      todo.id,
+                                      e.target.value
+                                    )}
+                                  placeholder="Add a note..."
+                                  class="w-full p-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
+                                  rows="2"
+                                ></textarea>
                               </div>
                             {/if}
                           </div>
@@ -1258,38 +1279,6 @@
         <button
           class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
           on:click={saveEditingNote}
-        >
-          Save Note
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if editingTodoNote}
-  <div
-    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-  >
-    <div
-      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
-    >
-      <h2 class="text-2xl font-bold mb-4">Edit Todo Note</h2>
-      <textarea
-        bind:value={editingNote}
-        placeholder="Enter a note for this todo..."
-        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white mb-4"
-        rows="4"
-      ></textarea>
-      <div class="flex justify-end space-x-2">
-        <button
-          class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-          on:click={() => (editingTodoNote = null)}
-        >
-          Cancel
-        </button>
-        <button
-          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
-          on:click={saveEditingTodoNote}
         >
           Save Note
         </button>
