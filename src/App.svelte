@@ -15,7 +15,6 @@
     Moon,
     Clock,
     X,
-    Bell,
     Coffee,
     Calendar,
     Search,
@@ -32,9 +31,9 @@
     completed: boolean;
     dueDate?: string;
     showDateInput: boolean;
-    alertEnabled: boolean;
-    notificationId?: number;
     readOnly?: boolean;
+    note?: string;
+    createdAt: number;
   }
 
   interface TodoList {
@@ -42,6 +41,8 @@
     label: string;
     todos: Todo[];
     expanded: boolean;
+    note?: string;
+    createdAt: number;
   }
 
   interface ShareOptions {
@@ -51,6 +52,8 @@
 
   let lists: TodoList[] = [];
   let newListLabel = "";
+  let editingNoteId: string | null = null;
+  let editingNote = "";
   let newTodoText = "";
   let bulkInput = "";
   let searchQuery = "";
@@ -63,10 +66,10 @@
   let darkMode = true;
   let use24HourFormat = false;
   let showAbout = false;
-  let notificationPermission: NotificationPermission = "default";
   let showSearch = false;
   let showFilters = false;
-  let sortBy: "default" | "dueDate" | "alphabetical" = "default";
+  let sortBy: "default" | "dueDate" | "alphabetical" | "creationDate" =
+    "default";
   let showShareModal = false;
   let shareUrl = "";
   let shortShareUrl = "";
@@ -79,6 +82,8 @@
   let shareFeedback = "";
   let showLeftNav = false;
   let showFeedbackModal = false;
+  let hoveredElement: string | null = null;
+  let editingTodoNote: { listId: string; todoId: string } | null = null;
 
   onMount(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -117,24 +122,10 @@
     darkMode = storedDarkMode === null ? true : storedDarkMode === "true";
     use24HourFormat = localStorage.getItem("use24HourFormat") === "true";
     applyTheme();
-    setupNotifications();
     return () => {
       window.removeEventListener("beforeunload", saveData);
     };
   });
-
-  function clearDueDate(todo: Todo): void {
-    todo.dueDate = undefined;
-    saveData();
-  }
-
-  function setDueDateToday(todo: Todo, listId: string): void {
-    todo.dueDate = new Date().toISOString();
-    saveData();
-    if (todo.alertEnabled) {
-      setupNotification(todo, listId);
-    }
-  }
 
   function applyTheme() {
     if (darkMode) {
@@ -236,25 +227,31 @@
         const updatedTodos = list.todos.map((todo) =>
           todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
         );
-        const completedTodos = updatedTodos.filter((todo) => todo.completed);
-        const incompleteTodos = updatedTodos.filter((todo) => !todo.completed);
-
-        // Check if all todos are completed
-        if (incompleteTodos.length === 0 && completedTodos.length > 0) {
-          setTimeout(() => {
-            confetti({
-              particleCount: 100,
-              spread: 70,
-              origin: { y: 0.6 },
-            });
-          }, 100);
-        }
-
-        return { ...list, todos: [...incompleteTodos, ...completedTodos] };
+        // Sort todos to move completed items to the bottom
+        updatedTodos.sort((a, b) => {
+          if (a.completed === b.completed) return 0;
+          return a.completed ? 1 : -1;
+        });
+        return { ...list, todos: updatedTodos };
       }
       return list;
     });
+
+    // Check if all todos in the list are completed
+    const currentList = lists.find((list) => list.id === listId);
+    if (currentList && currentList.todos.every((todo) => todo.completed)) {
+      triggerConfetti();
+    }
+
     saveData();
+  }
+
+  function triggerConfetti() {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+    });
   }
 
   function toggleDateInput(listId: string, todoId: string): void {
@@ -279,6 +276,7 @@
         label: newListLabel.trim(),
         todos: [],
         expanded: true,
+        createdAt: Date.now(),
       };
       lists = [newList, ...lists];
       newListLabel = "";
@@ -291,15 +289,28 @@
     }
   }
 
-  function addTodo(listId: string): void {
+  async function addTodo(listId: string): Promise<void> {
     if (newTodoText.trim()) {
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      let todoText = newTodoText.trim();
+
+      const matches = todoText.match(urlRegex);
+      if (matches) {
+        for (const url of matches) {
+          const title = await fetchUrlMetadata(url);
+          const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer">${title}</a>`;
+          todoText = todoText.replace(url, linkHtml);
+        }
+      }
+
       const newTodo: Todo = {
         id: Date.now().toString(),
-        text: newTodoText.trim(),
+        text: todoText,
         completed: false,
         showDateInput: false,
-        alertEnabled: false,
+        createdAt: Date.now(),
       };
+
       lists = lists.map((list) =>
         list.id === listId ? { ...list, todos: [...list.todos, newTodo] } : list
       );
@@ -318,7 +329,7 @@
           text: text.trim(),
           completed: false,
           showDateInput: false,
-          alertEnabled: false,
+          createdAt: Date.now(),
         }));
 
       lists = lists.map((list) =>
@@ -354,7 +365,8 @@
 
   function handleNewListKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter" && newListLabel.trim()) {
-      createNewList();
+      event.preventDefault();
+      isCreatingNewList = true;
     }
   }
 
@@ -368,24 +380,7 @@
     const target = e.target as HTMLInputElement;
     const localDate = new Date(target.value);
     todo.dueDate = localDate.toISOString();
-    todo.showDateInput = false;
     saveData();
-    if (todo.alertEnabled) {
-      setupNotification(todo, listId);
-    }
-  }
-
-  function toggleAlert(todo: Todo, listId: string): void {
-    todo.alertEnabled = !todo.alertEnabled;
-    saveData();
-    if (todo.alertEnabled && todo.dueDate) {
-      setupNotification(todo, listId);
-      console.log(`Alert enabled for todo: ${todo.text}`);
-    } else {
-      removeNotification(todo.id);
-      console.log(`Alert disabled for todo: ${todo.text}`);
-    }
-    lists = [...lists]; // Trigger a re-render
   }
 
   function getDateColor(date: string | undefined, completed: boolean): string {
@@ -417,10 +412,22 @@
           ...todo,
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         })),
+        createdAt: Date.now(),
       };
       lists = [copiedList, ...lists];
       saveData();
     }
+  }
+
+  function copyTodoText(text: string): void {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        alert("Todo text copied to clipboard!");
+      })
+      .catch((err) => {
+        console.error("Failed to copy text: ", err);
+      });
   }
 
   function startEditingListName(listId: string): void {
@@ -444,72 +451,52 @@
     }
   }
 
-  async function setupNotifications() {
-    if ("Notification" in window) {
-      notificationPermission = await Notification.requestPermission();
-    }
-    lists.forEach((list) => {
-      list.todos.forEach((todo) => {
-        if (todo.dueDate && todo.alertEnabled) {
-          setupNotification(todo, list.id);
-        }
-      });
-    });
-  }
-
-  function setupNotification(todo: Todo, listId: string) {
-    if (todo.dueDate) {
-      const dueTime = new Date(todo.dueDate).getTime();
-      const currentTime = new Date().getTime();
-      const timeUntilDue = dueTime - currentTime;
-
-      if (timeUntilDue > 0) {
-        const notificationId = setTimeout(() => {
-          showNotification(todo, listId);
-        }, timeUntilDue);
-
-        // Store the notification ID for potential cancellation
-        todo.notificationId = notificationId;
-        console.log(
-          `Notification set for todo: ${todo.text}, due in ${timeUntilDue / 1000} seconds`
-        );
-      } else {
-        console.log(`Todo:  ${todo.text} is already due`);
-      }
+  function startEditingNote(listId: string): void {
+    editingNoteId = listId;
+    const list = lists.find((l) => l.id === listId);
+    if (list) {
+      editingNote = list.note || "";
     }
   }
 
-  function removeNotification(todoId: string) {
-    lists = lists.map((list) => ({
-      ...list,
-      todos: list.todos.map((todo) => {
-        if (todo.id === todoId && todo.notificationId) {
-          clearTimeout(todo.notificationId);
-          console.log(`Notification removed for todo: ${todo.text}`);
-          return { ...todo, notificationId: undefined };
-        }
-        return todo;
-      }),
-    }));
+  function saveEditingNote(): void {
+    if (editingNoteId) {
+      lists = lists.map((list) =>
+        list.id === editingNoteId ? { ...list, note: editingNote.trim() } : list
+      );
+      editingNoteId = null;
+      editingNote = "";
+      saveData();
+    }
   }
 
-  function showNotification(todo: Todo, listId: string) {
-    if (notificationPermission === "granted") {
-      new Notification("Todo Due", {
-        body: `Your todo "${todo.text}" is due now!`,
-      });
+  function startEditingTodoNote(listId: string, todoId: string): void {
+    editingTodoNote = { listId, todoId };
+    const list = lists.find((l) => l.id === listId);
+    const todo = list?.todos.find((t) => t.id === todoId);
+    if (todo) {
+      editingNote = todo.note || "";
     }
-    // You can also use chrome.notifications API for more advanced notifications
-    if (typeof chrome !== "undefined" && chrome.notifications) {
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icon.png",
-        title: "Todo Due",
-        message: `Your todo "${todo.text}" is due now!`,
-        priority: 2,
-      });
+  }
+
+  function saveEditingTodoNote(): void {
+    if (editingTodoNote) {
+      lists = lists.map((list) =>
+        list.id === editingTodoNote.listId
+          ? {
+              ...list,
+              todos: list.todos.map((todo) =>
+                todo.id === editingTodoNote.todoId
+                  ? { ...todo, note: editingNote.trim() }
+                  : todo
+              ),
+            }
+          : list
+      );
+      editingTodoNote = null;
+      editingNote = "";
+      saveData();
     }
-    console.log(`Notification shown for todo: ${todo.text}`);
   }
 
   function getLocalISOString(date: Date): string {
@@ -534,7 +521,9 @@
     showFilters = !showFilters;
   }
 
-  function setSortBy(sort: "default" | "dueDate" | "alphabetical") {
+  function setSortBy(
+    sort: "default" | "dueDate" | "alphabetical" | "creationDate"
+  ) {
     sortBy = sort;
   }
 
@@ -571,10 +560,6 @@
     // For demonstration, we're just returning a fake shortened URL.
     // In a real implementation, you would make an API call to a URL shortening service.
     return `https://short.url/${Math.random().toString(36).substr(2, 8)}`;
-  }
-
-  function handleEditInputClick(event: MouseEvent) {
-    event.stopPropagation();
   }
 
   function trackShareUsage() {
@@ -625,6 +610,32 @@
       : "bg-gray-50 dark:bg-gray-750";
   }
 
+  function handleEditInputClick(event: MouseEvent) {
+    event.stopPropagation();
+  }
+
+  async function fetchUrlMetadata(url: string): Promise<string> {
+    try {
+      const response = await fetch(url);
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const ogTitle = doc.querySelector('meta[property="og:title"]');
+      const title = doc.querySelector("title");
+
+      if (ogTitle && ogTitle.getAttribute("content")) {
+        return ogTitle.getAttribute("content") || "";
+      } else if (title && title.textContent) {
+        return title.textContent;
+      } else {
+        return url;
+      }
+    } catch (error) {
+      console.error("Error fetching URL metadata:", error);
+      return url;
+    }
+  }
+
   const handleTodoConsider = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
     handleDndConsider(e, listId);
   const handleTodoFinalize = (e: CustomEvent<DndEvent<Todo>>, listId: string) =>
@@ -645,31 +656,58 @@
           return (a.dueDate || "").localeCompare(b.dueDate || "");
         } else if (sortBy === "alphabetical") {
           return a.text.localeCompare(b.text);
+        } else if (sortBy === "creationDate") {
+          return a.createdAt - b.createdAt;
         }
         return 0;
       }),
   }));
+
+  $: hasDueDates = lists.some((list) =>
+    list.todos.some((todo) => todo.dueDate)
+  );
+  $: if (!hasDueDates && sortBy === "dueDate") {
+    sortBy = "creationDate";
+  }
 </script>
 
 <main
   class="flex flex-col h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200"
 >
-  <header class="bg-white dark:bg-gray-800 shadow-md p-4">
-    <div class="max-w-4xl mx-auto flex justify-between items-center">
-      <div class="flex items-center space-x-2 flex-shrink-0">
+  <header class="bg-white dark:bg-gray-800 shadow-md">
+    <div class="max-w-4xl mx-auto flex justify-between items-center px-4">
+      <div class="flex items-center space-x-2 py-4">
         <button
           class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           on:click={toggleLeftNav}
+          on:mouseenter={() => (hoveredElement = "menu")}
+          on:mouseleave={() => (hoveredElement = null)}
         >
           <Menu size={24} />
+          {#if hoveredElement === "menu"}
+            <div
+              class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+            >
+              Menu
+            </div>
+          {/if}
         </button>
         <a
           href="https://ko-fi.com/yourusername"
           target="_blank"
           rel="noopener noreferrer"
           class="inline-flex items-center p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:mouseenter={() => (hoveredElement = "coffee")}
+          on:mouseleave={() => (hoveredElement = null)}
         >
           <Coffee size={24} class="text-blue-600 dark:text-white" />
+          {#if hoveredElement === "coffee"}
+            <div
+              class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+            >
+              Support on Ko-fi
+            </div>
+          {/if}
         </a>
         <h1
           class="text-2xl font-bold text-blue-600 dark:text-white whitespace-nowrap"
@@ -677,38 +715,67 @@
           Just A List
         </h1>
       </div>
-      <div class="flex items-center">
-        <div class="mr-6">
-          <button
-            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:click={toggleSearch}
-            title="Toggle search"
-          >
-            <Search size={20} />
-          </button>
-        </div>
-        <div class="flex items-center space-x-1">
-          <button
-            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:click={toggleFilters}
-            title="Toggle filters"
-          >
-            <Filter size={20} />
-          </button>
-          <button
-            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:click={generateShareableLink}
-            title="Share list"
-          >
-            <Share2 size={20} />
-          </button>
-          <button
-            class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            on:click={() => (showAbout = true)}
-            title="About"
-          >
-          </button>
-        </div>
+      <div class="flex items-center space-x-4 py-4">
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={toggleSearch}
+          on:mouseenter={() => (hoveredElement = "search")}
+          on:mouseleave={() => (hoveredElement = null)}
+        >
+          <Search size={20} />
+          {#if hoveredElement === "search"}
+            <div
+              class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+            >
+              Toggle search
+            </div>
+          {/if}
+        </button>
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={toggleFilters}
+          on:mouseenter={() => (hoveredElement = "filter")}
+          on:mouseleave={() => (hoveredElement = null)}
+        >
+          <Filter size={20} />
+          {#if hoveredElement === "filter"}
+            <div
+              class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+            >
+              Toggle filters
+            </div>
+          {/if}
+        </button>
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={generateShareableLink}
+          on:mouseenter={() => (hoveredElement = "share")}
+          on:mouseleave={() => (hoveredElement = null)}
+        >
+          <Share2 size={20} />
+          {#if hoveredElement === "share"}
+            <div
+              class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+            >
+              Share list
+            </div>
+          {/if}
+        </button>
+        <button
+          class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          on:click={() => (showAbout = true)}
+          on:mouseenter={() => (hoveredElement = "about")}
+          on:mouseleave={() => (hoveredElement = null)}
+        >
+          <Clock size={20} />
+          {#if hoveredElement === "about"}
+            <div
+              class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+            >
+              About
+            </div>
+          {/if}
+        </button>
       </div>
     </div>
   </header>
@@ -808,10 +875,18 @@
           class="p-2 border rounded bg-white dark:bg-gray-700 dark:text-white"
         >
           <option value="default">Default sort</option>
-          <option value="dueDate">Sort by due date</option>
+          <option value="creationDate">Sort by creation date</option>
           <option value="alphabetical">Sort alphabetically</option>
+          {#if hasDueDates}
+            <option value="dueDate">Sort by due date</option>
+          {/if}
         </select>
       </div>
+      {#if !hasDueDates && sortBy === "creationDate"}
+        <div class="mb-4 text-sm text-yellow-600 dark:text-yellow-400">
+          Note: No lists have due dates set. Sorting by creation date instead.
+        </div>
+      {/if}
     {/if}
 
     <div class="space-y-4 sticky top-0 bg-gray-100 dark:bg-gray-900 z-10 pb-4">
@@ -825,7 +900,7 @@
         <button
           type="button"
           class="px-4 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          on:click={() => (isCreatingNewList = true)}
+          on:click={createNewList}
           disabled={!newListLabel.trim()}
         >
           Create List
@@ -882,12 +957,14 @@
           <div animate:flip={{ duration: 300 }}>
             <div
               class="border dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 mb-2 bg-white dark:bg-gray-800 {list.expanded
-                ? 'border-blue-500 dark:border-blue-400'
+                ? 'pb-2'
                 : ''}"
             >
               <button
                 type="button"
-                class="w-full flex items-center justify-between p-3 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="w-full flex items-center justify-between p-3 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 {getListHeaderBackgroundColor(
+                  index
+                )}"
                 on:click={() => toggleListExpansion(list.id)}
                 on:keydown={(e) => handleListKeydown(e, list.id)}
               >
@@ -896,66 +973,106 @@
                     size={16}
                     class="text-gray-400 dark:text-gray-500 cursor-move"
                   />
-                  <div class="flex items-center space-x-2">
-                    <ChevronRight
-                      size={16}
-                      class="transform transition-transform duration-200 {list.expanded
-                        ? 'rotate-90'
-                        : ''}"
+                  {#if editingListId === list.id}
+                    <input
+                      type="text"
+                      bind:value={editingListLabel}
+                      on:blur={saveEditingListName}
+                      on:keydown={(e) => {
+                        if (e.key === "Enter") saveEditingListName();
+                      }}
+                      on:click={handleEditInputClick}
+                      class="flex-grow p-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
                     />
-                    {#if editingListId === list.id}
-                      <input
-                        bind:value={editingListLabel}
-                        on:blur={saveEditingListName}
-                        on:click={handleEditInputClick}
-                        on:keydown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            saveEditingListName();
-                          }
-                          e.stopPropagation();
-                        }}
-                        class="text-base font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 bg-yellow-100 dark:bg-yellow-900"
-                      />
-                    {:else}
-                      <h2
-                        class="text-base font-semibold text-gray-800 dark:text-gray-200 truncate"
-                      >
-                        {list.label}
-                      </h2>
-                    {/if}
-                  </div>
+                  {:else}
+                    <span class="font-semibold flex-grow">{list.label}</span>
+                  {/if}
                 </div>
                 <div class="flex items-center space-x-2">
                   <button
                     type="button"
-                    class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="p-1 {list.note
+                      ? 'text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'} focus:outline-none"
+                    on:click|stopPropagation={() => startEditingNote(list.id)}
+                    on:mouseenter={() => (hoveredElement = `note-${list.id}`)}
+                    on:mouseleave={() => (hoveredElement = null)}
+                  >
+                    <MessageSquare size={16} />
+                    {#if hoveredElement === `note-${list.id}`}
+                      <div
+                        class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                      >
+                        {list.note ? "Edit note" : "Add note"}
+                      </div>
+                    {/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none"
+                    on:click|stopPropagation={() => copyList(list.id)}
+                    on:mouseenter={() => (hoveredElement = `copy-${list.id}`)}
+                    on:mouseleave={() => (hoveredElement = null)}
+                  >
+                    <Copy size={16} />
+                    {#if hoveredElement === `copy-${list.id}`}
+                      <div
+                        class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                      >
+                        Copy list
+                      </div>
+                    {/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none"
                     on:click|stopPropagation={() =>
                       startEditingListName(list.id)}
+                    on:mouseenter={() => (hoveredElement = `edit-${list.id}`)}
+                    on:mouseleave={() => (hoveredElement = null)}
                   >
-                    <span class="sr-only">Edit list name</span>
                     <Edit size={16} />
+                    {#if hoveredElement === `edit-${list.id}`}
+                      <div
+                        class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                      >
+                        Edit list name
+                      </div>
+                    {/if}
                   </button>
                   <button
                     type="button"
-                    class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    on:click|stopPropagation={() => copyList(list.id)}
-                  >
-                    <span class="sr-only">Copy list</span>
-                    <Copy size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    class="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="p-1 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-200 focus:outline-none"
                     on:click|stopPropagation={() => deleteList(list.id)}
+                    on:mouseenter={() => (hoveredElement = `delete-${list.id}`)}
+                    on:mouseleave={() => (hoveredElement = null)}
                   >
-                    <span class="sr-only">Delete list</span>
                     <Trash2 size={16} />
+                    {#if hoveredElement === `delete-${list.id}`}
+                      <div
+                        class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                      >
+                        Delete list
+                      </div>
+                    {/if}
                   </button>
+                  <ChevronRight
+                    size={20}
+                    class="transform transition-transform duration-200 {list.expanded
+                      ? 'rotate-90'
+                      : ''}"
+                  />
                 </div>
               </button>
               {#if list.expanded}
                 <div transition:slide|local={{ duration: 300 }}>
+                  {#if list.note}
+                    <div
+                      class="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-sm italic"
+                    >
+                      {list.note}
+                    </div>
+                  {/if}
                   <div class="p-3 border-t dark:border-gray-700">
                     <div class="space-y-2">
                       <section
@@ -990,9 +1107,9 @@
                                 for={`todo-${todo.id}`}
                                 class="flex-grow text-sm {todo.completed
                                   ? 'line-through text-gray-500 dark:text-gray-400'
-                                  : 'text-gray-800 dark:text-gray-200'} cursor-pointer"
+                                  : 'text-gray-800 dark:text-gray-200'}"
                               >
-                                {todo.text}
+                                {@html todo.text}
                               </label>
                               <div class="flex items-center space-x-2">
                                 <button
@@ -1003,6 +1120,9 @@
                                   )} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                   on:click={() =>
                                     toggleDateInput(list.id, todo.id)}
+                                  on:mouseenter={() =>
+                                    (hoveredElement = `date-${todo.id}`)}
+                                  on:mouseleave={() => (hoveredElement = null)}
                                 >
                                   <span class="sr-only"
                                     >{todo.dueDate
@@ -1017,20 +1137,52 @@
                                   {:else}
                                     <Clock size={16} />
                                   {/if}
+                                  {#if hoveredElement === `date-${todo.id}`}
+                                    <div
+                                      class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                                    >
+                                      {todo.dueDate
+                                        ? "Edit due date"
+                                        : "Set due date"}
+                                    </div>
+                                  {/if}
                                 </button>
                                 <button
                                   type="button"
-                                  class="relative {todo.alertEnabled
-                                    ? 'text-blue-500'
-                                    : 'text-gray-400'} hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  on:click={() => toggleAlert(todo, list.id)}
+                                  class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  on:click={() => copyTodoText(todo.text)}
+                                  on:mouseenter={() =>
+                                    (hoveredElement = `copy-todo-${todo.id}`)}
+                                  on:mouseleave={() => (hoveredElement = null)}
                                 >
-                                  <span class="sr-only"
-                                    >{todo.alertEnabled
-                                      ? "Disable alert"
-                                      : "Enable alert"}</span
-                                  >
-                                  <Bell size={16} />
+                                  <Copy size={16} />
+                                  {#if hoveredElement === `copy-todo-${todo.id}`}
+                                    <div
+                                      class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                                    >
+                                      Copy todo text
+                                    </div>
+                                  {/if}
+                                </button>
+                                <button
+                                  type="button"
+                                  class="p-1 {todo.note
+                                    ? 'text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200'
+                                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'} focus:outline-none"
+                                  on:click|stopPropagation={() =>
+                                    startEditingTodoNote(list.id, todo.id)}
+                                  on:mouseenter={() =>
+                                    (hoveredElement = `note-todo-${todo.id}`)}
+                                  on:mouseleave={() => (hoveredElement = null)}
+                                >
+                                  <MessageSquare size={16} />
+                                  {#if hoveredElement === `note-todo-${todo.id}`}
+                                    <div
+                                      class="absolute mt-1 px-2 py-1 bg-gray-800 text-white text-xs rounded"
+                                    >
+                                      {todo.note ? "Edit note" : "Add note"}
+                                    </div>
+                                  {/if}
                                 </button>
                               </div>
                             </div>
@@ -1049,29 +1201,13 @@
                                     class="w-full p-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
                                   />
                                 </div>
-                                <div class="flex justify-between">
-                                  <button
-                                    type="button"
-                                    class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    on:click={() => clearDueDate(todo)}
-                                  >
-                                    <!-- Clear -->
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    on:click={() =>
-                                      setDueDateToday(todo, list.id)}
-                                  >
-                                  </button>
-                                </div>
                               </div>
                             {/if}
                           </div>
                         {/each}
                       </section>
                     </div>
-                    <div class="mt-3">
+                    <div class="mt-4">
                       <input
                         class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white"
                         placeholder="New todo item"
@@ -1081,7 +1217,7 @@
                       />
                       <button
                         type="button"
-                        class="w-full mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
+                        class="mt-2 w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
                         on:click={() => addTodo(list.id)}
                       >
                         Add Todo
@@ -1096,190 +1232,253 @@
       </section>
     </div>
   </div>
-
-  {#if showShareModal}
-    <div
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-    >
-      <div
-        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full relative"
-      >
-        <button
-          class="absolute top-2 right-2 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => (showShareModal = false)}
-        >
-          <X size={20} />
-        </button>
-        <h2 class="text-2xl font-bold mb-4">Share Your List</h2>
-        <div
-          class="mb-4 flex items-center text-yellow-600 dark:text-yellow-400"
-        >
-          <AlertTriangle size={20} class="mr-2" />
-          <p class="text-sm">
-            Anyone with this link can view your list. Be careful when sharing
-            sensitive information.
-          </p>
-        </div>
-        <div class="mb-4">
-          <label for="expirationTime" class="block text-sm font-medium mb-1"
-            >Expiration Time</label
-          >
-          <select
-            id="expirationTime"
-            bind:value={shareOptions.expirationTime}
-            class="w-full p-2 border rounded bg-white dark:bg-gray-600"
-          >
-            <option value={null}>No expiration</option>
-            <option value={Date.now() + 3600000}>1 hour</option>
-            <option value={Date.now() + 86400000}>24 hours</option>
-            <option value={Date.now() + 604800000}>1 week</option>
-          </select>
-        </div>
-        <div class="mb-4">
-          <label class="flex items-center">
-            <input
-              type="checkbox"
-              bind:checked={shareOptions.isEditable}
-              class="mr-2"
-            />
-            <span class="text-sm">Allow editing</span>
-          </label>
-        </div>
-        <div class="mb-4">
-          <label for="shareLink" class="block text-sm font-medium mb-1"
-            >Shareable Link</label
-          >
-          <div class="flex">
-            <input
-              id="shareLink"
-              type="text"
-              readonly
-              value={shortShareUrl}
-              class="flex-grow p-2 border rounded-l bg-gray-100 dark:bg-gray-600"
-            />
-            <button
-              class="px-4 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600 transition-colors duration-200"
-              on:click={copyShareableLink}
-            >
-              Copy
-            </button>
-          </div>
-        </div>
-        <div class="flex justify-center mb-4">
-          {#if qrCodeDataUrl}
-            <img
-              src={qrCodeDataUrl}
-              alt="QR Code for sharing"
-              class="w-48 h-48"
-            />
-          {:else}
-            <p>Generating QR code...</p>
-          {/if}
-        </div>
-        <div class="flex justify-end">
-          <button
-            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
-            on:click={() => (showShareModal = false)}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if showFeedbackModal}
-    <div
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-    >
-      <div
-        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full relative"
-      >
-        <button
-          class="absolute top-2 right-2 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          on:click={() => (showFeedbackModal = false)}
-        >
-          <X size={20} />
-        </button>
-        <h2 class="text-2xl font-bold mb-4">Provide Feedback</h2>
-        <textarea
-          bind:value={shareFeedback}
-          placeholder="Please provide your feedback on the app..."
-          class="w-full p-2 mb-4 border rounded bg-white dark:bg-gray-600 h-32"
-        ></textarea>
-        <div class="flex justify-end">
-          <button
-            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
-            on:click={submitShareFeedback}
-          >
-            Submit Feedback
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if showAbout}
-    <div
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-    >
-      <div
-        class="bg-white dark:bg-gray-700 p-6 rounded-lg shadow-xl max-w-md w-full"
-      >
-        <h2 class="text-2xl font-bold mb-4">About Just A List</h2>
-        <p class="mb-4">
-          I hope you enjoy this simple yet powerful todo list! It's designed to
-          help you stay organized and productive.
-        </p>
-        <p class="mb-4">
-          If you find this app useful, consider supporting its development:
-        </p>
-        <div class="flex justify-between items-center">
-          <button
-            class="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors duration-200"
-            on:click={() => (showAbout = false)}
-          >
-            Close
-          </button>
-          <a
-            href="https://ko-fi.com/yourusername"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
-          >
-            <Coffee size={20} class="mr-2" />
-            Buy me a coffee
-          </a>
-        </div>
-      </div>
-    </div>
-  {/if}
 </main>
 
+{#if editingNoteId}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  >
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+    >
+      <h2 class="text-2xl font-bold mb-4">Edit List Note</h2>
+      <textarea
+        bind:value={editingNote}
+        placeholder="Enter a note for this list..."
+        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white mb-4"
+        rows="4"
+      ></textarea>
+      <div class="flex justify-end space-x-2">
+        <button
+          class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          on:click={() => (editingNoteId = null)}
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+          on:click={saveEditingNote}
+        >
+          Save Note
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if editingTodoNote}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  >
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+    >
+      <h2 class="text-2xl font-bold mb-4">Edit Todo Note</h2>
+      <textarea
+        bind:value={editingNote}
+        placeholder="Enter a note for this todo..."
+        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white mb-4"
+        rows="4"
+      ></textarea>
+      <div class="flex justify-end space-x-2">
+        <button
+          class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          on:click={() => (editingTodoNote = null)}
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+          on:click={saveEditingTodoNote}
+        >
+          Save Note
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showAbout}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  >
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+    >
+      <h2 class="text-2xl font-bold mb-4">About Just A List</h2>
+      <p class="mb-4">
+        Just A List is a simple, yet powerful todo list application. It allows
+        you to create multiple lists, add tasks, set due dates, and more.
+      </p>
+      <p class="mb-4">
+        This app is designed to help you stay organized and productive. We hope
+        you find it useful!
+      </p>
+      <div class="flex justify-end">
+        <button
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+          on:click={() => (showAbout = false)}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showShareModal}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  >
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+    >
+      <h2 class="text-2xl font-bold mb-4">Share Your List</h2>
+      <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" for="expiration">
+          Expiration
+        </label>
+        <select
+          id="expiration"
+          bind:value={shareOptions.expirationTime}
+          class="w-full p-2 border rounded bg-white dark:bg-gray-700 dark:text-white"
+        >
+          <option value={null}>No expiration</option>
+          <option value={Date.now() + 3600000}>1 hour</option>
+          <option value={Date.now() + 86400000}>24 hours</option>
+          <option value={Date.now() + 604800000}>1 week</option>
+        </select>
+      </div>
+      <div class="mb-4">
+        <label class="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            bind:checked={shareOptions.isEditable}
+            class="form-checkbox h-4 w-4 text-blue-600"
+          />
+          <span>Allow editing</span>
+        </label>
+      </div>
+      <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" for="shareLink">
+          Shareable Link
+        </label>
+        <div class="flex">
+          <input
+            type="text"
+            id="shareLink"
+            readonly
+            value={shortShareUrl}
+            class="flex-grow p-2 border rounded-l bg-gray-100 dark:bg-gray-700 dark:text-white"
+          />
+          <button
+            class="px-4 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+            on:click={copyShareableLink}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+      {#if qrCodeDataUrl}
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold mb-2">QR Code</h3>
+          <img
+            src={qrCodeDataUrl}
+            alt="QR Code for shared list"
+            class="mx-auto"
+          />
+        </div>
+      {/if}
+      <div class="flex justify-between">
+        <button
+          class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          on:click={() => (showShareModal = false)}
+        >
+          Close
+        </button>
+        <button
+          class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-700 focus:ring-offset-2"
+          on:click={() => (showShareFeedback = true)}
+        >
+          Share Feedback
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showShareFeedback}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  >
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+    >
+      <h2 class="text-2xl font-bold mb-4">Share Your Feedback</h2>
+      <textarea
+        bind:value={shareFeedback}
+        placeholder="How was your experience with sharing? Any suggestions for improvement?"
+        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white mb-4"
+        rows="4"
+      ></textarea>
+      <div class="flex justify-end space-x-2">
+        <button
+          class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          on:click={() => (showShareFeedback = false)}
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+          on:click={submitShareFeedback}
+        >
+          Submit Feedback
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showFeedbackModal}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+  >
+    <div
+      class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+    >
+      <h2 class="text-2xl font-bold mb-4">Provide Feedback</h2>
+      <textarea
+        placeholder="Share your thoughts, suggestions, or report any issues..."
+        class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-white mb-4"
+        rows="4"
+      ></textarea>
+      <div class="flex justify-end space-x-2">
+        <button
+          class="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          on:click={() => (showFeedbackModal = false)}
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+        >
+          Submit Feedback
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
+  :global(html) {
+    overflow-y: hidden;
+  }
+
   :global(body) {
-    margin: 0;
-    padding: 0;
-    height: 100vh;
-    overflow: hidden;
+    overflow-y: auto;
   }
 
-  :global(html.dark) {
+  :global(.dark) {
     color-scheme: dark;
-  }
-
-  /* Add these new styles for the responsive layout */
-  @media (max-width: 639px) {
-    .sm\:hidden {
-      display: block;
-    }
-    .sm\:flex {
-      display: none;
-    }
-  }
-
-  /* Add this new style for the darker odd list background in dark mode */
-  :global(.dark) .bg-gray-750 {
-    background-color: #2d3748;
   }
 </style>
